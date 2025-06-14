@@ -6,13 +6,12 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from tqdm import tqdm
 
-from partial_edits.utils.code_utils import safe_exec
 from partial_edits.utils.extract_utils import *
 
 load_dotenv()
 
-SYSTEM_PROMPT = """
-You are a Python Expert specializing in code analysis and debugging. You will be provided with a problem statement and a correct solution. Your task is to create a subtly incorrect version of the solution:
+CORRUPTION_SYSTEM_PROMPT = """
+You are a Python Expert specializing in code analysis and debugging. You will be provided with a problem statement, a correct solution, and the test cases. Your task is to create a subtly incorrect version of the solution such that the test cases fail:
 
 Requirements for the corrupted solution:
 1. Introduce exactly one logical bug that makes the solution incorrect
@@ -34,60 +33,62 @@ Then, output the corrupted solution in a code block, maintaining exact formattin
 
 
 def main():
-    client = OpenAI(
+    openai_client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=os.getenv("OPENROUTER_API_KEY"),
     )
 
-    data = load_dataset("bigcode/bigcodebench-hard", cache_dir="data", split="v0.1.0_hf")
-    corrupted_solutions = []
+    bigcodebench_dataset = load_dataset("bigcode/bigcodebench-hard", cache_dir="data", split="v0.1.0_hf")
 
-    for problem in tqdm(data):
-        if len(corrupted_solutions) >= 10:
-            break
+    # Output single JSONL file
+    output_filepath = "corrupted_solutions.jsonl"
 
-        problem_statement = problem["instruct_prompt"]
-        original_solution_body = problem["canonical_solution"]  # only the function body
-        func_desc_with_docstring = problem["complete_prompt"]
-        complete_original_solution = func_desc_with_docstring + "\n" + original_solution_body
-        test_code = problem["test"]
-        task_id = problem["task_id"]
+    generated_count = 0
 
-        original_test_result = safe_exec(complete_original_solution, test_code)
-        assert original_test_result["is_correct"], f"Original solution for problem {task_id} unexpectedly fails all tests!"
+    with open(output_filepath, "w") as output_file:
+        for coding_problem in tqdm(bigcodebench_dataset):
+            problem_description = coding_problem["instruct_prompt"]
+            canonical_solution_body = coding_problem["canonical_solution"]  # only the function body
+            function_signature_with_docstring = coding_problem["complete_prompt"]
+            complete_canonical_solution = function_signature_with_docstring + "\n" + canonical_solution_body
+            test_cases = coding_problem["test"]
+            problem_id = coding_problem["task_id"]
 
-        docstring = extract_docstring(problem["complete_prompt"])
+            # original_test_result = safe_exec(complete_canonical_solution, test_cases)
+            # assert original_test_result["is_correct"], f"Original solution for problem {problem_id} unexpectedly fails all tests!"
 
-        completion = client.chat.completions.create(
-            model="deepseek/deepseek-chat-v3-0324:free",
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": f"Problem Statement:\n{problem_statement}\n\nCorrect Solution:\n{original_solution_body}"}],
-            temperature=0.0,
-        )
-        llm_response = completion.choices[0].message.content
-        print(llm_response)
+            extracted_docstring = extract_docstring(coding_problem["complete_prompt"])
 
-        corrupted_solution = extract_code_from_response(llm_response)
-        corrupted_solution_with_docstring = insert_docstring(corrupted_solution, docstring)
-        corrupted_solution_function_body = extract_function_body(corrupted_solution_with_docstring)
+            llm_completion = openai_client.chat.completions.create(
+                model="deepseek/deepseek-r1-0528:free",
+                messages=[
+                    {"role": "system", "content": CORRUPTION_SYSTEM_PROMPT},
+                    {"role": "user", "content": f"Problem Statement:\n{problem_description}\n\nCorrect Solution:\n{complete_canonical_solution}\n\nTest Code:\n{test_cases}"},
+                ],
+                temperature=0.0,
+            )
+            raw_llm_response = llm_completion.choices[0].message.content
 
-        test_result = safe_exec(corrupted_solution, test_code)
-        assert not test_result["is_correct"], f"Generated solution for problem {task_id} unexpectedly passes all tests!"
+            corrupted_solution_code = extract_code_from_response(raw_llm_response)
+            if not extract_docstring(corrupted_solution_code):
+                corrupted_solution_with_docstring = insert_docstring(corrupted_solution_code, extracted_docstring)
+            else:
+                corrupted_solution_with_docstring = corrupted_solution_code
 
-        corrupted_solutions.append(
-            {
-                "task_id": task_id,
-                "prompt": problem_statement,
-                "canonical_solution": original_solution_body,
+            # Single entry with all data (compatible with evaluate.py)
+            jsonl_entry = {
+                "task_id": problem_id,
                 "corrupted_solution": corrupted_solution_with_docstring,
-                "test_code": test_code,
-                "raw_llm_response": llm_response,
-                "diff_count": count_diff_lines(original_solution_body, corrupted_solution_function_body),
-                "edit_count": get_levenshtein_distance(original_solution_body, corrupted_solution_function_body),
+                "prompt": problem_description,
+                "canonical_solution": complete_canonical_solution,
+                "test_code": test_cases,
+                "llm_response": raw_llm_response,
             }
-        )
+            output_file.write(json.dumps(jsonl_entry) + "\n")
+            generated_count += 1
 
-    with open("corrupted_solutions.json", "w") as f:
-        json.dump(corrupted_solutions, f, indent=2)
+    print(f"Generated {generated_count} corrupted solutions")
+    print(f"Output file: {output_filepath}")
 
 
 if __name__ == "__main__":

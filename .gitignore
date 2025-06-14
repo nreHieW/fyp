@@ -12,4 +12,5 @@ wheels/
 .env
 /data
 *.json
+*.jsonl
 *.ipynb
