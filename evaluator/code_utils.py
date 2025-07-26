@@ -9,7 +9,7 @@ from contextlib import redirect_stdout, redirect_stderr, contextmanager
 import faulthandler
 import io
 import numpy as np
-from multiprocessing import Array, Value, Manager
+from multiprocessing import Value, Manager
 import sys
 import types
 import unittest
@@ -59,27 +59,69 @@ def unsafe_execute(
                 "sys": sys,
                 "os": os,
                 "environ": os.environ,
+                "unittest": unittest,
             }
         )
 
         try:
             full_code = code + "\n" + test_code
 
+            # Execute the code first (with IO suppression)
             with swallow_io():
                 exec(compile(full_code, f"{module_name}.py", "exec"), new_module.__dict__)
                 sys.modules[module_name] = new_module
-                TestCases = getattr(new_module, "TestCases")
-                loader = unittest.TestLoader()
-                suite = loader.loadTestsFromTestCase(TestCases)
-                test_result = unittest.TestResult()
-                start_time = time.time()
-                with time_limit(timeout):
+
+            # Check if TestCases exists
+            if not hasattr(new_module, "TestCases"):
+                details["ALL"] = "No TestCases class found in test code"
+                stat.value = _FAILED
+                return
+
+            TestCases = getattr(new_module, "TestCases")
+            loader = unittest.TestLoader()
+            suite = loader.loadTestsFromTestCase(TestCases)
+            test_result = unittest.TestResult()
+
+            # Run tests with minimal IO suppression to capture better error details
+            start_time = time.time()
+            with time_limit(timeout):
+                # Capture stderr to get better error messages
+                error_stream = io.StringIO()
+                with redirect_stderr(error_stream):
                     suite.run(test_result)
 
+            # Collect detailed failure information
             issues = test_result.failures + test_result.errors
-            for test, trace in issues:
-                details[test.id().split(".")[-1]] = trace
-            stat.value = _SUCCESS
+            if issues:
+                for test, trace in issues:
+                    test_name = test.id().split(".")[-1]
+                    details[test_name] = trace
+
+            # Add test execution stats for debugging
+            details["TEST_STATS"] = {
+                "tests_run": test_result.testsRun,
+                "failures": len(test_result.failures),
+                "errors": len(test_result.errors),
+                "skipped": len(test_result.skipped),
+                "was_successful": test_result.wasSuccessful(),
+            }
+
+            # If no issues found via unittest but tests didn't pass, check for other problems
+            if not issues and test_result.testsRun == 0:
+                details["ALL"] = "No tests were executed"
+                stat.value = _FAILED
+                return
+
+            # Check if all tests passed
+            if test_result.wasSuccessful():
+                stat.value = _SUCCESS
+            else:
+                # Add error stream content if available
+                error_content = error_stream.getvalue()
+                if error_content and not issues:
+                    details["ERROR_OUTPUT"] = error_content
+                stat.value = _FAILED
+
         except BaseException as e:
             details["ALL"] = str(e)
             stat.value = _FAILED
@@ -89,7 +131,7 @@ def unsafe_execute(
         os.chdir = chdir
 
 
-def untrusted_check(code: str, test_code: str, min_time_limit: float = 10, gt_time_limit: float = 60) -> Tuple[str, np.ndarray]:
+def untrusted_check(code: str, test_code: str, min_time_limit: float = 10, gt_time_limit: float = 60) -> Tuple[str, dict]:
     min_time_limit = max(min_time_limit, gt_time_limit)
     timeout = max(os.getenv("BIGCODEBENCH_TIMEOUT_PER_TASK", TIMEOUT_LIMIT), min_time_limit) + 1
     # shared memory objects
@@ -123,7 +165,9 @@ def untrusted_check(code: str, test_code: str, min_time_limit: float = 10, gt_ti
     if not stat:
         stat = TIMEOUT
     if stat == PASS:
-        if details:
+        # Check if there are any actual error details (not just TEST_STATS)
+        error_details = {k: v for k, v in details.items() if k != "TEST_STATS"}
+        if error_details:
             stat = FAIL
 
     return stat, details

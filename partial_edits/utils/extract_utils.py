@@ -1,43 +1,22 @@
 import re
-import nltk
-import difflib
+import io
+import tokenize
+import ast
 
 
 def extract_code_from_response(response: str) -> str:
-    """Extract code from markdown code block."""
+    """Extract the longest code block from markdown code blocks."""
     if "</think>" in response:
         response = response.split("</think>")[-1]
+    if "</thought>" in response:
+        response = response.split("</thought>")[-1]
     pattern = r"```(?:python)?\n(.*?)\n```"
-    match = re.search(pattern, response, re.DOTALL)
-    if match:
-        return match.group(1).strip()
+    matches = re.findall(pattern, response, re.DOTALL)
+    if matches:
+        # Return the longest code block
+        longest_code = max(matches, key=len)
+        return longest_code.strip()
     return response.strip()
-
-
-def count_diff_lines(original: str, corrupted: str) -> int:
-    """Count how many lines are different between two code snippets using difflib."""
-    orig_lines = original.splitlines(keepends=True)
-    corr_lines = corrupted.splitlines(keepends=True)
-
-    # Use unified_diff to get the actual changes
-    diff = list(difflib.unified_diff(orig_lines, corr_lines, lineterm=""))
-
-    # Count lines that are additions or deletions (start with + or -)
-    # Skip the first 3 lines which are headers (@@ lines)
-    changed_lines = 0
-    for line in diff:
-        if line.startswith("+") and not line.startswith("+++"):
-            changed_lines += 1
-        elif line.startswith("-") and not line.startswith("---"):
-            changed_lines += 1
-
-    # Since we count both additions and deletions, divide by 2 for line replacements
-    # But handle pure additions/deletions correctly
-    additions = sum(1 for line in diff if line.startswith("+") and not line.startswith("+++"))
-    deletions = sum(1 for line in diff if line.startswith("-") and not line.startswith("---"))
-
-    # Return the maximum of additions or deletions (representing lines changed)
-    return max(additions, deletions)
 
 
 def extract_docstring(code: str) -> str:
@@ -61,7 +40,48 @@ def insert_docstring(code: str, docstring: str) -> str:
 
 
 def extract_function_body(code: str) -> str:
-    """Extract the function body after the docstring."""
+    """Extract the function body after the docstring using AST parsing."""
+    try:
+        # Parse the code using AST
+        tree = ast.parse(code)
+
+        # Find the function definition
+        func_def = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                func_def = node
+                break
+
+        if not func_def:
+            # Fallback to original regex-based approach
+            return _extract_function_body_regex(code)
+
+        # Get the line number where the function body starts
+        # Skip the docstring if it exists
+        body_start_line = func_def.lineno
+
+        # Check if the first statement is a docstring
+        if func_def.body and isinstance(func_def.body[0], ast.Expr) and isinstance(func_def.body[0].value, ast.Constant) and isinstance(func_def.body[0].value.value, str):
+            # Skip the docstring
+            if len(func_def.body) > 1:
+                body_start_line = func_def.body[1].lineno
+            else:
+                # Function only has docstring, return empty
+                return ""
+
+        # Extract lines from the body start
+        code_lines = code.splitlines()
+        body_lines = code_lines[body_start_line - 1 :]
+
+        return "\n".join(body_lines)
+
+    except (SyntaxError, Exception):
+        # Fallback to regex-based approach if AST parsing fails
+        return _extract_function_body_regex(code)
+
+
+def _extract_function_body_regex(code: str) -> str:
+    """Fallback regex-based function body extraction."""
     # Find the function definition line
     pattern = r"(def\s+[^:]+:\s*)\n"
     match = re.search(pattern, code)
@@ -71,19 +91,95 @@ def extract_function_body(code: str) -> str:
     # Start after function definition
     code_after_def = code[match.end() :]
 
-    # Check for docstring
-    docstring_pattern = r'^\s*""".*?"""\s*\n'
-    docstring_match = re.search(docstring_pattern, code_after_def, re.DOTALL)
+    # Check for docstring with both quote types and better matching
+    docstring_patterns = [
+        r'^\s*"""[\s\S]*?"""\s*\n',  # Triple double quotes
+        r"^\s*'''[\s\S]*?'''\s*\n",  # Triple single quotes
+    ]
 
-    if docstring_match:
-        # Start after docstring
-        body = code_after_def[docstring_match.end() :]
-    else:
-        body = code_after_def
+    for pattern in docstring_patterns:
+        docstring_match = re.search(pattern, code_after_def, re.DOTALL)
+        if docstring_match:
+            # Start after docstring
+            return code_after_def[docstring_match.end() :]
 
-    return body
+    # No docstring found, return body as-is
+    return code_after_def
 
 
-def get_levenshtein_distance(original: str, corrupted: str) -> int:
-    """Get the Levenshtein distance between two code snippets."""
-    return nltk.edit_distance(original, corrupted)
+def standardize_code_formatting(code: str) -> str:
+    """
+    Strip comments and normalize formatting from Python code using AST.
+    This removes comments, extra newlines, and standardizes formatting.
+
+    Args:
+        code: Python code string
+
+    Returns:
+        Code string with comments removed and formatting normalized
+    """
+    if not code.strip():
+        return code
+
+    try:
+        # Use AST to parse and unparse - this removes comments and normalizes formatting
+        tree = ast.parse(code)
+        return ast.unparse(tree)
+    except Exception:
+        # Fallback to tokenize approach for comment removal only
+        try:
+            tokens = []
+            readline = io.StringIO(code).readline
+
+            for token in tokenize.generate_tokens(readline):
+                # Skip comment tokens but keep everything else
+                if token.type != tokenize.COMMENT:
+                    tokens.append(token)
+
+            # Reconstruct the code without comments
+            return tokenize.untokenize(tokens)
+        except Exception:
+            # Final fallback: simple line-by-line processing
+            lines = code.splitlines()
+            result_lines = []
+
+            for line in lines:
+                # Find # that's not inside a string
+                in_string = False
+                quote_char = None
+                i = 0
+
+                while i < len(line):
+                    char = line[i]
+
+                    if not in_string and char in ['"', "'"]:
+                        # Check for triple quotes
+                        if i + 2 < len(line) and line[i : i + 3] in ['"""', "'''"]:
+                            in_string = True
+                            quote_char = line[i : i + 3]
+                            i += 3
+                            continue
+                        else:
+                            in_string = True
+                            quote_char = char
+                    elif in_string and char == quote_char[0]:
+                        if len(quote_char) == 3:
+                            if i + 2 < len(line) and line[i : i + 3] == quote_char:
+                                in_string = False
+                                quote_char = None
+                                i += 3
+                                continue
+                        else:
+                            if i == 0 or line[i - 1] != "\\":
+                                in_string = False
+                                quote_char = None
+                    elif not in_string and char == "#":
+                        # Found comment, truncate line here
+                        line = line[:i].rstrip()
+                        break
+
+                    i += 1
+
+                result_lines.append(line)
+
+            return "\n".join(result_lines)
