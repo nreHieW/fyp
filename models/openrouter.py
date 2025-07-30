@@ -73,9 +73,7 @@ class OpenRouterModel(BaseModel):
             payload = {
                 "model": self.model_name,
                 "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                "provider": {
-                    "order": ["alibaba"],
-                },
+                "max_tokens": 64000,
             }
 
             # Use streaming for reasoning models

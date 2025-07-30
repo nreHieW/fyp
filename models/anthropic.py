@@ -90,7 +90,7 @@ class AnthropicModel(BaseModel):
                         max_tokens=16000,
                     )
                 else:
-                    message_params = MessageCreateParamsNonStreaming(model=self.model_name, system=system_prompt, messages=[{"role": "user", "content": prompt}], max_tokens=16000)
+                    message_params = MessageCreateParamsNonStreaming(model=self.model_name, system=system_prompt, messages=[{"role": "user", "content": prompt}], max_tokens=8192)
 
                 requests.append(Request(custom_id=f"request-{idx}", params=message_params))
 

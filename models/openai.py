@@ -120,6 +120,7 @@ class OpenAICompatibleModel(BaseModel):
                     item = json.loads(line)
                     custom_id = item.get("custom_id")
                     error_info = item.get("error")
+                    print(f"Error with {item}")
                     resp_map[custom_id] = {"reasoning": "", "final_answer": "", "error": str(error_info)}
                 except Exception:
                     pass
@@ -184,7 +185,6 @@ class OpenAICompatibleModel(BaseModel):
             if getattr(job, "error_file_id", None):
                 resp_map.update(self._parse_error_file(job.error_file_id))
 
-            # weihern is gay
             # 7. Build ordered list
             results = []
             for idx in range(len(user_prompts)):
