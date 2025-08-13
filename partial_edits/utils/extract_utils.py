@@ -6,17 +6,30 @@ import ast
 
 def extract_code_from_response(response: str) -> str:
     """Extract the longest code block from markdown code blocks."""
+    try:
+        ast.parse(response)
+        return response
+    except:
+        pass
+
     if "</think>" in response:
         response = response.split("</think>")[-1]
     if "</thought>" in response:
         response = response.split("</thought>")[-1]
-    pattern = r"```(?:python)?\n(.*?)\n```"
-    matches = re.findall(pattern, response, re.DOTALL)
+    # Pattern for a COMPLETE code block where both the opening and closing
+    pattern_closed = r"^```(?:python)?\s*\n([\s\S]*?)\n```"
+    matches = re.findall(pattern_closed, response, re.IGNORECASE | re.MULTILINE)
     if matches:
-        # Return the longest code block
-        longest_code = max(matches, key=len)
-        return longest_code.strip()
-    return response.strip()
+        # Return the longest captured block (after stripping whitespace)
+        return max((code.strip() for code in matches), key=len)
+
+    # Fallback: opening fence with no closing fence – grab everything until EOF.
+    pattern_open_only = r"^```(?:python)?\s*\n([\s\S]*)$"
+    open_only_match = re.search(pattern_open_only, response, re.IGNORECASE | re.MULTILINE)
+    if open_only_match:
+        return open_only_match.group(1).strip()
+
+    return ""  # if we cannot extract code, its a model issue. Provider issues will be handled by the model api already
 
 
 def extract_docstring(code: str) -> str:

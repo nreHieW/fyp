@@ -184,6 +184,14 @@
             background: #8e44ad;
             color: white;
             font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .reasoning-header div {
+            display: flex;
+            gap: 8px;
         }
 
         .reasoning-content {
@@ -693,9 +701,13 @@
 
             <div class="reasoning-panel" id="reasoningPanel" style="display: none;">
                 <div class="reasoning-header">
-                    LLM Reasoning
+                    <span>LLM Reasoning</span>
+                    <div>
+                        <button class="maximize-btn" onclick="toggleReasoningExpansion()" id="reasoningToggleBtn">Show</button>
+                        <button class="maximize-btn" onclick="toggleMaximizeReasoning()" id="reasoningMaxBtn" style="display: none;">Maximize</button>
+                    </div>
                 </div>
-                <div class="reasoning-content">
+                <div class="reasoning-content" id="reasoningContentContainer" style="display: none;">
                     <div class="code-block" id="reasoningContent">No reasoning available</div>
                 </div>
             </div>
@@ -748,12 +760,87 @@
         let allTasks = []; // Store all tasks for filtering/sorting
         let filteredTasks = []; // Store filtered tasks
         let maximizedPanel = null;
+        let maximizedReasoning = false;
+        let reasoningExpanded = false;
+
+        function toggleReasoningExpansion() {
+            const reasoningContentContainer = document.getElementById('reasoningContentContainer');
+            const toggleBtn = document.getElementById('reasoningToggleBtn');
+            const maxBtn = document.getElementById('reasoningMaxBtn');
+
+            if (reasoningExpanded) {
+                // Hide reasoning content
+                reasoningContentContainer.style.display = 'none';
+                maxBtn.style.display = 'none';
+                toggleBtn.textContent = 'Show';
+                reasoningExpanded = false;
+            } else {
+                // Show reasoning content
+                reasoningContentContainer.style.display = 'block';
+                maxBtn.style.display = 'inline-block';
+                toggleBtn.textContent = 'Hide';
+                reasoningExpanded = true;
+            }
+        }
+
+        function toggleMaximizeReasoning() {
+            const reasoningContentContainer = document.getElementById('reasoningContentContainer');
+            const maxBtn = document.getElementById('reasoningMaxBtn');
+            const contentDiv = document.getElementById('content');
+            const insightsPanel = document.getElementById('insightsPanel');
+            const diffView = document.querySelector('.diff-view');
+            const metricsView = document.getElementById('metricsView');
+            const errorDetailsPanel = document.getElementById('errorDetailsPanel');
+
+            // Make sure reasoning is expanded first
+            if (!reasoningExpanded) {
+                toggleReasoningExpansion();
+            }
+
+            if (maximizedReasoning) {
+                // Minimize - restore normal layout
+                if (reasoningContentContainer) reasoningContentContainer.style.maxHeight = '400px';
+                if (maxBtn) maxBtn.textContent = 'Maximize';
+                
+                // Show other panels
+                if (contentDiv) contentDiv.style.display = 'block';
+                if (insightsPanel) insightsPanel.style.display = 'block';
+                if (diffView) diffView.style.display = 'block';
+                if (metricsView && metricsView.style.display === 'block') metricsView.style.display = 'block';
+                if (errorDetailsPanel && errorDetailsPanel.style.display === 'block') errorDetailsPanel.style.display = 'block';
+                
+                maximizedReasoning = false;
+            } else {
+                // If a code panel is maximized, restore it first
+                if (maximizedPanel) {
+                    toggleMaximize(maximizedPanel);
+                }
+
+                // Maximize - hide other panels and expand reasoning
+                if (reasoningContentContainer) reasoningContentContainer.style.maxHeight = '80vh';
+                if (maxBtn) maxBtn.textContent = 'Minimize';
+                
+                // Hide other panels
+                if (contentDiv) contentDiv.style.display = 'none';
+                if (insightsPanel) insightsPanel.style.display = 'none';
+                if (diffView) diffView.style.display = 'none';
+                if (metricsView) metricsView.style.display = 'none';
+                if (errorDetailsPanel) errorDetailsPanel.style.display = 'none';
+                
+                maximizedReasoning = true;
+            }
+        }
 
         function toggleMaximize(panelId) {
             const panel = document.getElementById(panelId);
             const contentDiv = document.querySelector('.content');
             const allPanels = document.querySelectorAll('.code-panel');
             const button = panel.querySelector('.maximize-btn');
+
+            // If reasoning is maximized, restore it first
+            if (maximizedReasoning) {
+                toggleMaximizeReasoning();
+            }
 
             if (maximizedPanel === panelId) {
                 // Minimize - show all panels
@@ -1366,13 +1453,13 @@
             statusBadge.textContent = status;
             statusBadge.className = `status-badge status-${status}`;
 
-            // Show reasoning panel if available
+            // Always show reasoning panel with appropriate message
             if (taskData.llm_reasoning && taskData.llm_reasoning.trim()) {
                 displayCodePanel('reasoningContent', taskData.llm_reasoning);
-                reasoningPanel.style.display = 'block';
             } else {
-                reasoningPanel.style.display = 'none';
+                displayCodePanel('reasoningContent', 'No reasoning available for this task');
             }
+            reasoningPanel.style.display = 'block';
 
             // Show error details panel if available
             displayErrorDetails(taskData);

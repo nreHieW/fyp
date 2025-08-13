@@ -4,13 +4,13 @@ from models.openrouter import OpenRouterModel
 from models.anthropic import AnthropicModel
 from models.google import GoogleModel
 from models.base import BaseModel
+
 import os
 
 __all__ = ["OpenAICompatibleModel", "Qwen3Model", "OpenRouterModel", "AnthropicModel", "GoogleModel"]
 
 
 def get_model(model_name: str, is_reasoning: bool) -> BaseModel:
-
     if model_name.startswith("openai"):  # Actual OpenAI hosted models
         return OpenAICompatibleModel(is_reasoning, model_name.replace("openai/", ""))
     elif model_name.startswith("anthropic"):  # Anthropic models
@@ -38,3 +38,7 @@ def get_model(model_name: str, is_reasoning: bool) -> BaseModel:
             model_name,
             api_key=os.getenv("OPENROUTER_API_KEY"),
         )
+
+
+def is_reasoning_model(model_name: str):
+    return any(x in model_name.lower() for x in ["reasoning", "r1", "high", "low", "medium", "thinking"])

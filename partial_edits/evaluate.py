@@ -18,10 +18,12 @@ from utils.similarity_utils import (
     get_rouge_scores,
     get_meteor_score,
     get_chrf_score,
+    tokenize_code,
     get_codebleu_score,
     calculate_bleu_score,
     calculate_corpus_bleu_score,
     calculate_corpus_codebleu_score,
+    get_diffsitter_edit_distance,
 )
 import requests
 
@@ -49,33 +51,34 @@ def calculate_diffs(corrupted_solution: str, canonical_solution: str, llm_soluti
     return diffs
 
 
-def _compute_raw_metrics(text1: str, text2: str, ignore_comments: bool = False) -> Dict[str, float]:
+def _compute_raw_metrics(reference: str, prediction: str, ignore_comments: bool = False) -> Dict[str, float]:
     """Compute raw similarity metrics for two text strings"""
     metrics = {
-        "bleu_score": calculate_bleu_score(text1, text2, ignore_comments=ignore_comments),
-        "levenshtein_distance": get_levenshtein_distance(text1, text2, ignore_comments=ignore_comments),
-        "edit_distance": count_diff_lines(text1, text2, ignore_comments=ignore_comments),
-        "meteor_score": get_meteor_score(text1, text2, ignore_comments=ignore_comments),
-        "chrf_score": get_chrf_score(text1, text2, ignore_comments=ignore_comments),
+        "bleu_score": calculate_bleu_score(reference, prediction, ignore_comments=ignore_comments),
+        "levenshtein_distance": get_levenshtein_distance(reference, prediction, ignore_comments=ignore_comments),
+        "edit_distance": count_diff_lines(reference, prediction, ignore_comments=ignore_comments),
+        "diffsitter_edit_distance": get_diffsitter_edit_distance(reference, prediction),
+        "meteor_score": get_meteor_score(reference, prediction, ignore_comments=ignore_comments),
+        "chrf_score": get_chrf_score(reference, prediction, ignore_comments=ignore_comments),
     }
 
-    rouge_scores = get_rouge_scores(text1, text2, ignore_comments=ignore_comments)
+    rouge_scores = get_rouge_scores(reference, prediction, ignore_comments=ignore_comments)
     metrics.update(rouge_scores)
 
-    codebleu_scores = get_codebleu_score(text1, text2, ignore_comments=ignore_comments)
+    codebleu_scores = get_codebleu_score(reference, prediction, ignore_comments=ignore_comments)
     metrics.update(codebleu_scores)
 
     return metrics
 
 
-def _normalize_metrics(raw_metrics: Dict[str, float], text1: str, text2: str, prefix: str = "", ignore_comments: bool = False) -> Dict[str, float]:
+def _normalize_metrics(raw_metrics: Dict[str, float], reference: str, prediction: str, prefix: str = "", ignore_comments: bool = False) -> Dict[str, float]:
     """Normalize distance metrics and add prefix if provided"""
     if ignore_comments:
-        text1 = standardize_code_formatting(text1)
-        text2 = standardize_code_formatting(text2)
+        reference = standardize_code_formatting(reference)
+        prediction = standardize_code_formatting(prediction)
 
-    max_len = max(len(text1), len(text2))
-    max_lines = max(len(text1.splitlines()), len(text2.splitlines()))
+    max_lines = max(len(reference.splitlines()), len(prediction.splitlines()))
+    max_tokens = max(len(tokenize_code(reference)), len(tokenize_code(prediction)))
 
     result = {}
 
@@ -83,36 +86,24 @@ def _normalize_metrics(raw_metrics: Dict[str, float], text1: str, text2: str, pr
     for key, value in raw_metrics.items():
         result[f"{prefix}{key}"] = value
 
-    # Add normalized versions of distance metrics
-    result[f"{prefix}normalized_levenshtein"] = raw_metrics["levenshtein_distance"] / max_len if max_len > 0 else 0.0
+    result[f"{prefix}normalized_levenshtein"] = raw_metrics["levenshtein_distance"] / max_tokens if max_tokens > 0 else 0.0
     result[f"{prefix}normalized_edit_distance"] = raw_metrics["edit_distance"] / max_lines if max_lines > 0 else 0.0
+    if raw_metrics["diffsitter_edit_distance"] == -1:
+        result[f"{prefix}normalized_diffsitter_edit_distance"] = -1.0
+    else:
+        result[f"{prefix}normalized_diffsitter_edit_distance"] = raw_metrics["diffsitter_edit_distance"] / max_lines if max_lines > 0 else 0.0
 
     return result
 
 
-def calculate_similarity_metrics_with_comments_only(original: str, edited: str) -> Dict[str, float]:
-    """Calculate similarity metrics with comments only (no comment stripping)"""
-    raw_metrics = _compute_raw_metrics(original, edited, ignore_comments=False)
-    return _normalize_metrics(raw_metrics, original, edited, ignore_comments=False)
-
-
-def calculate_body_similarity_metrics_with_comments_only(original: str, edited: str, get_body_cached=None) -> Dict[str, float]:
-    """Calculate similarity metrics for function bodies with comments only"""
-    # Use cached extraction if available, otherwise extract directly
-    if get_body_cached:
-        original_body = get_body_cached(original)
-        edited_body = get_body_cached(edited)
-    else:
-        original_body = extract_function_body(original).strip()
-        edited_body = extract_function_body(edited).strip()
-
-    # If body extraction fails, return zero metrics
-    if not original_body or not edited_body:
-        # Create zero metrics for simplified structure
-        zero_metrics = {
+class SimilarityCalculator:
+    def __init__(self, get_body_cached=None):
+        self.get_body_cached = get_body_cached
+        self._zero_metrics = {
             "bleu_score": 0.0,
             "levenshtein_distance": 0.0,
             "edit_distance": 0.0,
+            "diffsitter_edit_distance": 0.0,
             "meteor_score": 0.0,
             "chrf_score": 0.0,
             "rouge1_fmeasure": 0.0,
@@ -120,79 +111,37 @@ def calculate_body_similarity_metrics_with_comments_only(original: str, edited: 
             "rougeL_fmeasure": 0.0,
             "codebleu": 0.0,
         }
-        return _normalize_metrics(zero_metrics, "", "", "body_", ignore_comments=False)
 
-    # With comments only
-    raw_metrics = _compute_raw_metrics(original_body, edited_body, ignore_comments=False)
-    return _normalize_metrics(raw_metrics, original_body, edited_body, "body_", ignore_comments=False)
+    def _extract_body(self, code: str) -> str:
+        if self.get_body_cached:
+            return self.get_body_cached(code)
+        return extract_function_body(code)
 
+    def calculate_metrics(self, reference: str, prediction: str, body_only=False, with_comments=True, no_comments=True, prefix=""):
+        if body_only:
+            reference = self._extract_body(reference)
+            prediction = self._extract_body(prediction)
+            if not reference or not prediction:
+                zero_with = _normalize_metrics(self._zero_metrics, "", "", f"{prefix}body_", False) if with_comments else {}
+                zero_no = _normalize_metrics(self._zero_metrics, "", "", f"{prefix}body_no_comments_", True) if no_comments else {}
+                return {**zero_with, **zero_no}
 
-def calculate_similarity_metrics(original: str, edited: str) -> Dict[str, float]:
-    """Calculate similarity metrics both with and without comments"""
-    # With comments
-    raw_metrics_with_comments = _compute_raw_metrics(original, edited, ignore_comments=False)
-    metrics_with_comments = _normalize_metrics(raw_metrics_with_comments, original, edited, ignore_comments=False)
+        result = {}
+        if with_comments:
+            raw = _compute_raw_metrics(reference, prediction, False)
+            body_prefix = f"{prefix}body_" if body_only else prefix
+            result.update(_normalize_metrics(raw, reference, prediction, body_prefix, False))
 
-    # Without comments
-    raw_metrics_no_comments = _compute_raw_metrics(original, edited, ignore_comments=True)
-    metrics_no_comments = _normalize_metrics(raw_metrics_no_comments, original, edited, ignore_comments=True)
+        if no_comments:
+            raw = _compute_raw_metrics(reference, prediction, True)
+            body_prefix = f"{prefix}body_no_comments_" if body_only else f"{prefix}no_comments_"
+            result.update(_normalize_metrics(raw, reference, prediction, body_prefix, True))
 
-    # Combine both sets with appropriate prefixes
-    combined_metrics = {}
-
-    # Add metrics with comments (no prefix for backward compatibility)
-    combined_metrics.update(metrics_with_comments)
-
-    # Add metrics without comments with "no_comments_" prefix
-    for key, value in metrics_no_comments.items():
-        combined_metrics[f"no_comments_{key}"] = value
-
-    return combined_metrics
-
-
-def calculate_body_similarity_metrics(original: str, edited: str, get_body_cached=None) -> Dict[str, float]:
-    """Calculate similarity metrics for function bodies with optional caching, both with and without comments"""
-
-    # Use cached extraction if available, otherwise extract directly
-    if get_body_cached:
-        original_body = get_body_cached(original)
-        edited_body = get_body_cached(edited)
-    else:
-        original_body = extract_function_body(original).strip()
-        edited_body = extract_function_body(edited).strip()
-
-    # If body extraction fails, return zero metrics
-    if not original_body or not edited_body:
-        # Create zero metrics for simplified structure
-        zero_metrics = {
-            "bleu_score": 0.0,
-            "levenshtein_distance": 0.0,
-            "edit_distance": 0.0,
-            "meteor_score": 0.0,
-            "chrf_score": 0.0,
-            "rouge1_fmeasure": 0.0,
-            "rouge2_fmeasure": 0.0,
-            "rougeL_fmeasure": 0.0,
-            "codebleu": 0.0,
-        }
-        with_comments = _normalize_metrics(zero_metrics, "", "", "body_", ignore_comments=False)
-        no_comments = _normalize_metrics(zero_metrics, "", "", "body_no_comments_", ignore_comments=True)
-        return {**with_comments, **no_comments}
-
-    # With comments
-    raw_metrics_with_comments = _compute_raw_metrics(original_body, edited_body, ignore_comments=False)
-    metrics_with_comments = _normalize_metrics(raw_metrics_with_comments, original_body, edited_body, "body_", ignore_comments=False)
-
-    # Without comments
-    raw_metrics_no_comments = _compute_raw_metrics(original_body, edited_body, ignore_comments=True)
-    metrics_no_comments = _normalize_metrics(raw_metrics_no_comments, original_body, edited_body, "body_no_comments_", ignore_comments=True)
-
-    return {**metrics_with_comments, **metrics_no_comments}
+        return result
 
 
 def load_solutions(sample_path: str):
-    """Load solutions from JSONL file or directory
-
+    """
     Expected JSONL format:
     Each line should be a JSON object with the following structure:
 
@@ -208,17 +157,6 @@ def load_solutions(sample_path: str):
 
     Example format:
     {"task_id": "BigCodeBench/123", "solution": "def solve_problem():\\n    # complete implementation\\n    return result", "prompt": "Solve this problem...", "llm_response": "Here is the solution:\\n\\n```python\\ndef solve_problem():\\n    # complete implementation\\n    return result\\n```"}
-
-    Notes:
-    - One JSON object per line (JSONL format)
-    - Samples with task_ids not in BigCodeBench dataset will be skipped during evaluation
-    - The prompt and llm_response fields will be saved in the evaluation results for viewing in the UI
-
-    Args:
-        sample_path (str): Path to JSONL file containing solutions
-
-    Returns:
-        list: List of solution dictionaries with _identifier field added
     """
     solutions = []
 
@@ -260,289 +198,224 @@ def check_correctness(task_info: Tuple[int, Dict[str, Any], str, str]) -> Dict:
                 raise e  # Re-raise on final attempt
 
 
+def _prepare_evaluation_tasks(sample_path: str, problems: Dict) -> Tuple[List[Tuple], List[Dict]]:
+    solutions = load_solutions(sample_path)
+    tasks = []
+    completion_id = Counter()
+
+    for sample in solutions:
+        task_id = sample["task_id"]
+        if task_id not in problems:
+            continue
+        task_info = (completion_id[task_id], problems[task_id], sample["solution"], sample["_identifier"])
+        tasks.append(task_info)
+        completion_id[task_id] += 1
+
+    return tasks, solutions
+
+
+def _run_evaluations(tasks: List[Tuple], max_workers: int) -> List[Dict]:
+    all_results = []
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        future_to_task = {executor.submit(check_correctness, task): task for task in tasks}
+        with tqdm(total=len(tasks), desc="Evaluating") as pbar:
+            for future in as_completed(future_to_task):
+                try:
+                    all_results.append(future.result())
+                except Exception as e:
+                    task_info = future_to_task[future]
+                    print(f"Error evaluating task {task_info[1]['task_id']}: {e}")
+                pbar.update(1)
+    return all_results
+
+
+def _process_similarity_metrics(task_data: Dict, eval_similarity: bool, similarity_calc: SimilarityCalculator) -> Dict:
+    if not eval_similarity:
+        return {}
+
+    canonical = task_data.get("canonical_solution", "")
+    corrupted = task_data.get("corrupted_solution", "")
+    llm = task_data.get("solution", "")
+
+    metrics = {}
+    if corrupted and canonical:
+        # canonical_vs_corrupted: prediction=canonical, reference=corrupted
+        metrics["canonical_vs_corrupted"] = similarity_calc.calculate_metrics(corrupted, canonical)
+        metrics["canonical_vs_corrupted"].update(similarity_calc.calculate_metrics(corrupted, canonical, body_only=True))
+
+    if llm and corrupted:
+        # llm_vs_corrupted: prediction=llm, reference=corrupted
+        metrics["llm_vs_corrupted"] = similarity_calc.calculate_metrics(corrupted, llm)
+        metrics["llm_vs_corrupted"].update(similarity_calc.calculate_metrics(corrupted, llm, body_only=True))
+
+    if llm and canonical:
+        # llm_vs_canonical: prediction=llm, reference=canonical
+        metrics["llm_vs_canonical"] = similarity_calc.calculate_metrics(canonical, llm)
+        metrics["llm_vs_canonical"].update(similarity_calc.calculate_metrics(canonical, llm, body_only=True))
+
+    return metrics
+
+
+def _calculate_corpus_metrics(results: Dict, eval_similarity: bool) -> Dict:
+    if not eval_similarity:
+        return {}
+
+    avg_similarity = {}
+    metric_sums, metric_counts = {}, {}
+
+    for task_data in results["eval"].values():
+        if not task_data.get("similarity_metrics"):
+            continue
+        for comparison_type, metrics in task_data["similarity_metrics"].items():
+            if comparison_type not in metric_sums:
+                metric_sums[comparison_type] = {}
+                metric_counts[comparison_type] = {}
+            for metric_name, value in metrics.items():
+                metric_sums[comparison_type].setdefault(metric_name, 0)
+                metric_counts[comparison_type].setdefault(metric_name, 0)
+                metric_sums[comparison_type][metric_name] += value
+                metric_counts[comparison_type][metric_name] += 1
+
+    for comparison_type in metric_sums:
+        avg_similarity[comparison_type] = {}
+        for metric_name in metric_sums[comparison_type]:
+            avg_similarity[comparison_type][metric_name] = metric_sums[comparison_type][metric_name] / metric_counts[comparison_type][metric_name]
+
+    for comparison_type in ["canonical_vs_corrupted", "llm_vs_corrupted", "llm_vs_canonical"]:
+        references, predictions = [], []
+        for task_data in results["eval"].values():
+            if not (task_data.get("similarity_metrics") and comparison_type in task_data["similarity_metrics"]):
+                continue
+            if comparison_type == "canonical_vs_corrupted":
+                # canonical_vs_corrupted: prediction=canonical, reference=corrupted
+                ref, pred = task_data.get("corrupted_solution", ""), task_data.get("canonical_solution", "")
+            elif comparison_type == "llm_vs_corrupted":
+                # llm_vs_corrupted: prediction=llm, reference=corrupted
+                ref, pred = task_data.get("corrupted_solution", ""), task_data.get("solution", "")
+            else:
+                # llm_vs_canonical: prediction=llm, reference=canonical
+                ref, pred = task_data.get("canonical_solution", ""), task_data.get("solution", "")
+            if ref and pred:
+                references.append(ref)
+                predictions.append(pred)
+
+        if references and predictions:
+            avg_similarity.setdefault(comparison_type, {})
+            if comparison_type == "canonical_vs_corrupted":
+                avg_similarity[comparison_type]["corpus_bleu_score"] = calculate_corpus_bleu_score(references, predictions, False)
+                avg_similarity[comparison_type]["corpus_codebleu"] = calculate_corpus_codebleu_score(references, predictions, ignore_comments=False)
+            else:
+                avg_similarity[comparison_type]["corpus_bleu_score"] = calculate_corpus_bleu_score(references, predictions, False)
+                avg_similarity[comparison_type]["corpus_codebleu"] = calculate_corpus_codebleu_score(references, predictions, ignore_comments=False)
+                avg_similarity[comparison_type]["corpus_no_comments_bleu_score"] = calculate_corpus_bleu_score(references, predictions, True)
+                avg_similarity[comparison_type]["corpus_no_comments_codebleu"] = calculate_corpus_codebleu_score(references, predictions, ignore_comments=True)
+
+    return avg_similarity
+
+
+def _compute_difference_with_canonical(similarity_metrics: Dict[str, Dict[str, float]]) -> Dict[str, float]:
+    """Compute per-metric differences: canonical_vs_corrupted - llm_vs_corrupted.
+
+    Only overlapping metric keys are considered. Missing keys are ignored.
+    """
+    if not similarity_metrics:
+        return {}
+    canonical_metrics = similarity_metrics.get("canonical_vs_corrupted", {})
+    llm_vs_corrupted_metrics = similarity_metrics.get("llm_vs_corrupted", {})
+    if not canonical_metrics or not llm_vs_corrupted_metrics:
+        return {}
+    diff: Dict[str, float] = {}
+    for metric_name, canonical_value in canonical_metrics.items():
+        if metric_name in llm_vs_corrupted_metrics:
+            diff[metric_name] = canonical_value - llm_vs_corrupted_metrics[metric_name]
+    return diff
+
+
 def evaluate(sample_path: str, save_results: bool = True, max_workers: int = 8, eval_similarity: bool = False, hard: bool = False):
-    assert sample_path is not None, "No samples provided"
-    assert sample_path.endswith(".jsonl"), "Samples must be a JSONL file"
+    assert sample_path and sample_path.endswith(".jsonl"), "Sample path must be a JSONL file"
 
-    sample_dir = os.path.dirname(sample_path)
-    sample_filename = os.path.basename(sample_path)
-    results_dir = os.path.join(sample_dir, "results")
-    result_filename = sample_filename.replace(".jsonl", "_eval_results.json")
-    result_path = os.path.join(results_dir, result_filename)
-
+    result_path = os.path.join(os.path.dirname(sample_path), "results", os.path.basename(sample_path).replace(".jsonl", "_eval_results.json"))
     if save_results:
-        os.makedirs(results_dir, exist_ok=True)
+        os.makedirs(os.path.dirname(result_path), exist_ok=True)
 
     dataset_name = "bigcode/bigcodebench-hard" if hard else "bigcode/bigcodebench"
     print(f"Loading BigCodeBench dataset: {dataset_name}...")
     problems = get_bigcodebench(hard=hard)
 
-    results = {
-        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "eval": {},
-        "metrics": {},
-    }
-
-    completion_id = Counter()
-
     print("Preparing solutions for evaluation...")
-    solutions = load_solutions(sample_path)
-
-    tasks = []
-
-    for sample in solutions:
-        task_id = sample["task_id"]
-
-        if task_id not in problems:
-            continue
-
-        solution = sample["solution"]
-
-        task_info = (completion_id[task_id], problems[task_id], solution, sample["_identifier"])
-        tasks.append(task_info)
-        completion_id[task_id] += 1
+    tasks, solutions = _prepare_evaluation_tasks(sample_path, problems)
 
     if not tasks:
         print("No valid tasks found to evaluate.")
-        return results, {"pass@1": 0.0, "total_problems": len(problems), "evaluated_problems": 0, "passed_problems": 0}
+        return {"date": datetime.now().strftime("%Y-%m-%d %H:%M"), "eval": {}, "metrics": {}}, {"pass@1": 0.0, "total_problems": len(problems), "evaluated_problems": 0, "passed_problems": 0}
 
     print(f"Evaluating {len(tasks)} solutions using {max_workers} workers...")
-
-    all_results = []
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        future_to_task = {executor.submit(check_correctness, task): task for task in tasks}
-
-        with tqdm(total=len(tasks), desc="Evaluating") as pbar:
-            for future in as_completed(future_to_task):
-                try:
-                    result = future.result()
-                    all_results.append(result)
-                except Exception as e:
-                    task_info = future_to_task[future]
-                    print(f"Error evaluating task {task_info[1]['task_id']}: {e}")
-
-                pbar.update(1)
-
-    passed_tasks = 0
-    total_tasks = len(all_results)
+    all_results = _run_evaluations(tasks, max_workers)
 
     print("Processing results and calculating diffs...")
+    results = {"date": datetime.now().strftime("%Y-%m-%d %H:%M"), "eval": {}, "metrics": {}}
+
+    bodies_cache = {}
+
+    def get_body_cached(solution: str) -> str:
+        if solution not in bodies_cache:
+            bodies_cache[solution] = extract_function_body(solution)
+        return bodies_cache[solution]
+
+    similarity_calc = SimilarityCalculator(get_body_cached)
+    passed_tasks = 0
 
     for result in all_results:
         task_id = result["task_id"]
-
         original_sample = next((s for s in solutions if s["task_id"] == task_id), None)
-        canonical_solution = original_sample["canonical_solution"] if original_sample else None
-        corrupted_solution = original_sample["corrupted_solution"] if original_sample else None
-        llm_solution = result["solution"]
 
-        diffs = calculate_diffs(corrupted_solution or "", canonical_solution or "", llm_solution or "")
-
-        individual_similarity_metrics = {}
-        if eval_similarity:
-            bodies_cache = {}
-
-            def get_body_cached(solution: str) -> str:
-                if solution not in bodies_cache:
-                    bodies_cache[solution] = extract_function_body(solution).strip()
-                return bodies_cache[solution]
-
-            # Helper function to compute all metrics for a pair (with and without comments)
-            def compute_pair_metrics_full(original: str, edited: str) -> Dict[str, float]:
-                full_metrics = calculate_similarity_metrics(original, edited)
-                body_metrics = calculate_body_similarity_metrics(original, edited, get_body_cached)
-                return {**full_metrics, **body_metrics}
-
-            # Helper function to compute only with-comments metrics for a pair
-            def compute_pair_metrics_comments_only(original: str, edited: str) -> Dict[str, float]:
-                full_metrics = calculate_similarity_metrics_with_comments_only(original, edited)
-                body_metrics = calculate_body_similarity_metrics_with_comments_only(original, edited, get_body_cached)
-                return {**full_metrics, **body_metrics}
-
-            # Compute similarity pairs - only canonical vs corrupted gets comments-only metrics
-            if corrupted_solution and canonical_solution:
-                individual_similarity_metrics["corrupted_vs_canonical"] = compute_pair_metrics_comments_only(canonical_solution, corrupted_solution)
-
-            # LLM comparisons get full metrics (with and without comments)
-            if llm_solution and corrupted_solution:
-                individual_similarity_metrics["llm_vs_corrupted"] = compute_pair_metrics_full(corrupted_solution, llm_solution)
-
-            if llm_solution and canonical_solution:
-                individual_similarity_metrics["llm_vs_canonical"] = compute_pair_metrics_full(canonical_solution, llm_solution)
-
-        results["eval"][task_id] = {
+        task_data = {
             "task_id": task_id,
             "solution": result["solution"],
-            "canonical_solution": canonical_solution,
-            "corrupted_solution": corrupted_solution,
+            "canonical_solution": original_sample.get("canonical_solution") if original_sample else None,
+            "corrupted_solution": original_sample.get("corrupted_solution") if original_sample else None,
             "status": result["status"],
             "details": result["details"],
-            "diffs": diffs,
-            "similarity_metrics": individual_similarity_metrics if eval_similarity else None,
+            "diffs": calculate_diffs(
+                original_sample.get("corrupted_solution", "") if original_sample else "", original_sample.get("canonical_solution", "") if original_sample else "", result["solution"]
+            ),
+            "similarity_metrics": _process_similarity_metrics(
+                {
+                    "canonical_solution": original_sample.get("canonical_solution") if original_sample else None,
+                    "corrupted_solution": original_sample.get("corrupted_solution") if original_sample else None,
+                    "solution": result["solution"],
+                },
+                eval_similarity,
+                similarity_calc,
+            ),
             "prompt": original_sample.get("prompt", "") if original_sample else "",
             "llm_response": original_sample.get("llm_response", "") if original_sample else "",
             "token_usage": original_sample.get("token_usage", {}) if original_sample else {},
+            "llm_reasoning": original_sample.get("llm_reasoning", "") if original_sample else "",
         }
 
+        # Compute and store the difference only inside similarity_metrics for averaging
+        task_data["similarity_metrics"]["difference_with_canonical"] = _compute_difference_with_canonical(task_data.get("similarity_metrics", {}))
+        results["eval"][task_id] = task_data
         if result["status"] == PASS:
             passed_tasks += 1
 
-    # Calculate average similarity metrics from individual sample metrics
-    avg_similarity = {}
-    if eval_similarity:
-        metric_sums = {}
-        metric_counts = {}
+    avg_similarity = _calculate_corpus_metrics(results, eval_similarity)
 
-        # Use the individual similarity metrics we calculated for each sample
-        for task_id, task_data in results["eval"].items():
-            if task_data.get("similarity_metrics"):
-                for comparison_type, metrics in task_data["similarity_metrics"].items():
-                    if comparison_type not in metric_sums:
-                        metric_sums[comparison_type] = {}
-                        metric_counts[comparison_type] = {}
-
-                    for metric_name, value in metrics.items():
-                        if metric_name not in metric_sums[comparison_type]:
-                            metric_sums[comparison_type][metric_name] = 0
-                            metric_counts[comparison_type][metric_name] = 0
-
-                        metric_sums[comparison_type][metric_name] += value
-                        metric_counts[comparison_type][metric_name] += 1
-
-        # Calculate averages
-        for comparison_type in metric_sums:
-            avg_similarity[comparison_type] = {}
-            for metric_name in metric_sums[comparison_type]:
-                avg_similarity[comparison_type][metric_name] = metric_sums[comparison_type][metric_name] / metric_counts[comparison_type][metric_name]
-
-        # Calculate corpus-level BLEU and CodeBLEU metrics and add them to avg_similarity
-        for comparison_type in ["corrupted_vs_canonical", "llm_vs_corrupted", "llm_vs_canonical"]:
-            references = []
-            predictions = []
-
-            for task_id, task_data in results["eval"].items():
-                if task_data.get("similarity_metrics") and comparison_type in task_data["similarity_metrics"]:
-                    if comparison_type == "corrupted_vs_canonical":
-                        ref = task_data.get("canonical_solution", "")
-                        pred = task_data.get("corrupted_solution", "")
-                    elif comparison_type == "llm_vs_corrupted":
-                        ref = task_data.get("corrupted_solution", "")
-                        pred = task_data.get("solution", "")
-                    elif comparison_type == "llm_vs_canonical":
-                        ref = task_data.get("canonical_solution", "")
-                        pred = task_data.get("solution", "")
-
-                    if ref and pred:
-                        references.append(ref)
-                        predictions.append(pred)
-
-            if references and predictions:
-                # Initialize comparison_type in avg_similarity if it doesn't exist
-                if comparison_type not in avg_similarity:
-                    avg_similarity[comparison_type] = {}
-
-                # For corrupted_vs_canonical, only calculate with comments
-                if comparison_type == "corrupted_vs_canonical":
-                    avg_similarity[comparison_type]["corpus_bleu_score"] = calculate_corpus_bleu_score(references, predictions, ignore_comments=False)
-                    avg_similarity[comparison_type]["corpus_codebleu"] = calculate_corpus_codebleu_score(references, predictions, ignore_comments=False)
-                else:
-                    # For LLM comparisons, calculate both with and without comments
-                    avg_similarity[comparison_type]["corpus_bleu_score"] = calculate_corpus_bleu_score(references, predictions, ignore_comments=False)
-                    avg_similarity[comparison_type]["corpus_codebleu"] = calculate_corpus_codebleu_score(references, predictions, ignore_comments=False)
-                    avg_similarity[comparison_type]["corpus_no_comments_bleu_score"] = calculate_corpus_bleu_score(references, predictions, ignore_comments=True)
-                    avg_similarity[comparison_type]["corpus_no_comments_codebleu"] = calculate_corpus_codebleu_score(references, predictions, ignore_comments=True)
-
-    # Calculate pass@1
-    pass_at_1 = passed_tasks / total_tasks if total_tasks > 0 else 0.0
-
-    # Metadata
     metrics = {
-        "pass@1": pass_at_1,
+        "pass@1": passed_tasks / len(all_results) if all_results else 0.0,
         "total_problems": len(problems),
-        "evaluated_problems": total_tasks,
+        "evaluated_problems": len(all_results),
         "passed_problems": passed_tasks,
         "eval_similarity": eval_similarity,
         "similarity_metrics": avg_similarity if eval_similarity else None,
     }
-    # Add metrics to results
     results["metrics"] = metrics
 
-    # Save results
     if save_results:
         with open(result_path, "w") as f:
             json.dump(results, f, indent=2)
-
         print(f"Results saved to {result_path}")
-    else:
-        # Print results
-        print(f"pass@1: {pass_at_1:.3f}")
-        print(f"Evaluated {total_tasks}/{len(problems)} problems")
-        print(f"Passed {passed_tasks}/{total_tasks} problems")
-
-        if eval_similarity:
-            similarity_count = sum(1 for task_data in results["eval"].values() if task_data.get("similarity_metrics"))
-            print(f"Similarity metrics computed for {similarity_count} problems")
-
-            if avg_similarity:
-                print("\nSimilarity Metrics (Average and Corpus-Level):")
-                for comparison_type, metrics_dict in avg_similarity.items():
-                    print(f"  {comparison_type}:")
-
-                    # Separate corpus metrics from average metrics
-                    corpus_metrics = {}
-                    average_metrics = {}
-
-                    for metric_name, value in metrics_dict.items():
-                        if metric_name.startswith("corpus_"):
-                            corpus_metrics[metric_name] = value
-                        else:
-                            average_metrics[metric_name] = value
-
-                    # Print average metrics first
-                    if average_metrics:
-                        # For corrupted_vs_canonical, we only have with-comments metrics
-                        if comparison_type == "corrupted_vs_canonical":
-                            print(f"    Average Metrics (With Comments Only):")
-                            for metric_name, avg_value in average_metrics.items():
-                                print(f"      {metric_name}: {avg_value:.4f}")
-                        else:
-                            # For LLM comparisons, separate by with/without comments
-                            with_comments_metrics = {}
-                            no_comments_metrics = {}
-
-                            for metric_name, avg_value in average_metrics.items():
-                                if metric_name.startswith("no_comments_"):
-                                    no_comments_metrics[metric_name.replace("no_comments_", "")] = avg_value
-                                elif not metric_name.startswith("body_no_comments_"):
-                                    with_comments_metrics[metric_name] = avg_value
-
-                            if with_comments_metrics:
-                                print(f"    Average Metrics - With Comments:")
-                                for metric_name, avg_value in with_comments_metrics.items():
-                                    print(f"      {metric_name}: {avg_value:.4f}")
-
-                            if no_comments_metrics:
-                                print(f"    Average Metrics - Without Comments:")
-                                for metric_name, avg_value in no_comments_metrics.items():
-                                    print(f"      {metric_name}: {avg_value:.4f}")
-
-                            body_with_comments = {k: v for k, v in average_metrics.items() if k.startswith("body_") and not k.startswith("body_no_comments_")}
-                            if body_with_comments:
-                                print(f"    Average Body Metrics (With Comments):")
-                                for metric_name, avg_value in body_with_comments.items():
-                                    print(f"      {metric_name}: {avg_value:.4f}")
-
-                            body_no_comments = {k.replace("body_no_comments_", ""): v for k, v in average_metrics.items() if k.startswith("body_no_comments_")}
-                            if body_no_comments:
-                                print(f"    Average Body Metrics (Without Comments):")
-                                for metric_name, avg_value in body_no_comments.items():
-                                    print(f"      body_{metric_name}: {avg_value:.4f}")
-
-                    # Print corpus metrics
-                    if corpus_metrics:
-                        print(f"    Corpus-Level Metrics:")
-                        for metric_name, value in corpus_metrics.items():
-                            print(f"      {metric_name}: {value:.4f}")
 
     return results, metrics
 
@@ -559,13 +432,8 @@ def main():
 
     args = parser.parse_args()
 
-    try:
-        results, metrics = evaluate(sample_path=args.sample_path, save_results=not args.no_save, max_workers=args.max_workers, eval_similarity=args.eval_similarity, hard=args.hard)
-        print("\nEvaluation completed successfully!")
-
-    except Exception as e:
-        print(f"Error during evaluation: {e}")
-        sys.exit(1)
+    results, metrics = evaluate(sample_path=args.sample_path, save_results=not args.no_save, max_workers=args.max_workers, eval_similarity=args.eval_similarity, hard=args.hard)
+    print("\nEvaluation completed successfully!")
 
 
 if __name__ == "__main__":

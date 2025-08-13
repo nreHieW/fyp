@@ -43,7 +43,6 @@ class AnthropicModel(BaseModel):
             # Add thinking parameter if reasoning is enabled
             if self.is_reasoning:
                 message_params["thinking"] = {"type": "enabled", "budget_tokens": 10000}
-                message_params["max_tokens"] = 16000
 
             response = self.client.messages.create(**message_params)
 
@@ -90,7 +89,7 @@ class AnthropicModel(BaseModel):
                         max_tokens=16000,
                     )
                 else:
-                    message_params = MessageCreateParamsNonStreaming(model=self.model_name, system=system_prompt, messages=[{"role": "user", "content": prompt}], max_tokens=8192)
+                    message_params = MessageCreateParamsNonStreaming(model=self.model_name, system=system_prompt, messages=[{"role": "user", "content": prompt}], max_tokens=16000)
 
                 requests.append(Request(custom_id=f"request-{idx}", params=message_params))
 

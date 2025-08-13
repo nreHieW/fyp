@@ -2,6 +2,9 @@ SYSTEM_PROMPT = """You are a Python Expert specializing in code analysis and deb
 Do not change the function signature, default arguments, or docstring. Use the docstring to understand the requirements of the function.
 IMPORTANT: Try to preserve the original code and the logic of the original code as much as possible."""
 
+GENERIC_SYSTEM_PROMPT = """You are a Python Expert specializing in code analysis and debugging. When provided with a problem statement, your task is to fix the code.
+Do not change the function signature, default arguments, or docstring. Use the docstring to understand the requirements of the function."""
+
 FEW_SHOT_SYSTEM_PROMPT = """You are a Python Expert specializing in code analysis and debugging. When provided with a problem statement and example solutions, your task is to fix the code.
 
 You will be shown several examples of code problems and their solutions. For each example, carefully analyze:
@@ -72,22 +75,25 @@ def generate_shots(questions, num_shots, include_test_cases=False):
     return shots_string, remaining_questions
 
 
-def create_user_message(problem_statement, corrupted_solution, is_explicit=False, test_code=None):
+def create_user_message(problem_statement, corrupted_solution, is_explicit=False, is_generic=False, test_code=None):
     """Create the user message template for the problem."""
     base_message = "I am trying to implement a function with the following specifications:\n" f"{problem_statement}.\n\n" "The function I have written so far is:\n" f"{corrupted_solution} \n\n"
 
     if test_code:
         base_message += f"The test cases are:\n{test_code}\n\n"
 
-    base_message += "What is wrong? Fix and complete my function but keep as much of the original code as possible." if is_explicit else "What is wrong? Fix and complete my function."
+    if is_explicit:
+        base_message += "What is wrong? Fix and complete my function but keep as much of the original code as possible."
+    else:
+        base_message += "What is wrong? Fix and complete my function."
 
-    return base_message
+    return base_message + "Wrap your response in ```python and ```"
 
 
-def get_system_prompt_with_shots(shots_string, num_shots, is_explicit=False):
+def get_system_prompt_with_shots(shots_string, num_shots, is_explicit=False, is_generic=False):
     """Get the appropriate system prompt based on whether shots are provided."""
     if shots_string:
         base_prompt = FEW_SHOT_SYSTEM_PROMPT_EXPLICIT if is_explicit else FEW_SHOT_SYSTEM_PROMPT
         return base_prompt + "\n\nHere are some examples to guide your approach:\n" + shots_string
     else:
-        return SYSTEM_PROMPT
+        return GENERIC_SYSTEM_PROMPT if is_generic else SYSTEM_PROMPT

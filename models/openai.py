@@ -14,9 +14,9 @@ class OpenAICompatibleModel(BaseModel):
         self.reasoning_effort_level = None
         self.clean_model_name = model_name
 
-        # Only parse reasoning effort if reasoning is enabled
-        if is_reasoning and model_name:
-            reasoning_pattern = r"_(low|medium|high)$"
+        # Parse reasoning effort suffix for OpenAI models
+        if model_name:
+            reasoning_pattern = r"_(minimal|low|medium|high)$"
             match = re.search(reasoning_pattern, model_name)
             if match:
                 self.reasoning_effort_level = match.group(1)
@@ -175,10 +175,7 @@ class OpenAICompatibleModel(BaseModel):
                 if job.status in {"completed", "failed", "expired", "cancelled"}:
                     break
                 time.sleep(5)
-
             # 5 & 6. Parse output and error files
-            print(job.status)
-            print(job)
             resp_map = {}
             if job.status == "completed" and getattr(job, "output_file_id", None):
                 resp_map.update(self._parse_output_file(job.output_file_id))
