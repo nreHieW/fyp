@@ -14,3 +14,4 @@ wheels/
 *.json
 *.jsonl
 *.ipynb
+Claude.md

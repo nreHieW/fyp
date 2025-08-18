@@ -13,6 +13,7 @@ dependencies = [
     "openai>=1.93.0",
     "python-dotenv>=1.1.1",
     "python-levenshtein>=0.27.1",
+    "requests>=2.25.0",
     "rouge-score>=0.1.2",
     "scikit-learn>=1.7.0",
     "scipy>=1.16.0",

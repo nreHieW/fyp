@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ICL Classification Results Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .file-input {
+            padding: 8px 15px;
+            border: 2px solid #3498db;
+            border-radius: 5px;
+            background: white;
+            cursor: pointer;
+        }
+
+        .sample-selector {
+            padding: 8px 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: white;
+            min-width: 300px;
+        }
+
+        .metrics {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .metric {
+            background: #ecf0f1;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .metric.accuracy {
+            background: #d5f4e6;
+            color: #27ae60;
+            font-weight: bold;
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .content.system-prompt-visible {
+            grid-template-columns: 1fr 1fr 1fr;
+        }
+
+        .content.maximized {
+            grid-template-columns: 1fr;
+        }
+
+        .panel {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 15px;
+            background: #34495e;
+            color: white;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .system-prompt-header {
+            background: #8e44ad;
+        }
+
+        .problem-header {
+            background: #2980b9;
+        }
+
+        .response-header {
+            background: #e67e22;
+        }
+
+        .maximize-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .maximize-btn:hover {
+            background: #2980b9;
+        }
+
+        .panel.hidden {
+            display: none;
+        }
+
+        .panel-content {
+            padding: 0;
+            overflow: auto;
+            max-height: 600px;
+            background: #1e1e1e;
+        }
+
+        .code-block {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border: 1px solid #404040;
+            border-radius: 5px;
+            padding: 20px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 15px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
+        }
+
+        .classification-result {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .classification-correct {
+            background: #d5f4e6;
+            color: #27ae60;
+            border: 2px solid #27ae60;
+        }
+
+        .classification-incorrect {
+            background: #fadbd8;
+            color: #e74c3c;
+            border: 2px solid #e74c3c;
+        }
+
+        .prediction-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+            margin: 10px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        .prediction-item {
+            text-align: center;
+            padding: 10px;
+            border-radius: 3px;
+        }
+
+        .ground-truth {
+            background: #e8f5e8;
+            color: #2d5a2d;
+        }
+
+        .predicted {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .extracted {
+            background: #e7f3ff;
+            color: #0c4a6e;
+        }
+
+        .filter-controls {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .filter-section {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .filter-section label {
+            font-size: 12px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .filter-section select {
+            padding: 5px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            font-size: 14px;
+        }
+
+        .apply-filters-btn {
+            padding: 8px 16px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            height: fit-content;
+        }
+
+        .toggle-system-prompt-btn {
+            padding: 8px 16px;
+            background: #8e44ad;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .apply-filters-btn:hover {
+            background: #2980b9;
+        }
+
+        .toggle-system-prompt-btn:hover {
+            background: #7d3c98;
+        }
+
+        .sample-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-correct {
+            background: #27ae60;
+        }
+
+        .status-incorrect {
+            background: #e74c3c;
+        }
+
+        .insights-panel {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            padding: 20px;
+        }
+
+        .insights-header {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+
+        .insights-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .confusion-matrix {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            padding: 20px;
+        }
+
+        .matrix-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .matrix-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 20px 0;
+        }
+
+        .matrix-table {
+            border-collapse: collapse;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .matrix-table th,
+        .matrix-table td {
+            padding: 15px 20px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .matrix-table th {
+            background: #34495e;
+            color: white;
+            font-size: 14px;
+        }
+
+        .matrix-table .row-header {
+            background: #2980b9;
+            color: white;
+            font-size: 14px;
+        }
+
+        .matrix-cell {
+            font-size: 18px;
+            min-width: 60px;
+            position: relative;
+        }
+
+        .matrix-cell.tp {
+            background: #d5f4e6;
+            color: #27ae60;
+        }
+
+        .matrix-cell.tn {
+            background: #d5f4e6;
+            color: #27ae60;
+        }
+
+        .matrix-cell.fp {
+            background: #fadbd8;
+            color: #e74c3c;
+        }
+
+        .matrix-cell.fn {
+            background: #fadbd8;
+            color: #e74c3c;
+        }
+
+        .matrix-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .matrix-stat {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            border-left: 4px solid #3498db;
+        }
+
+        .matrix-stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .matrix-stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .insight-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #3498db;
+            text-align: center;
+        }
+
+        .insight-item.accuracy-high {
+            border-left-color: #27ae60;
+        }
+
+        .insight-item.accuracy-low {
+            border-left-color: #e74c3c;
+        }
+
+        .insight-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #2c3e50;
+        }
+
+        .insight-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #3498db;
+            margin-bottom: 5px;
+        }
+
+        .insight-item.accuracy-high .insight-value {
+            color: #27ae60;
+        }
+
+        .insight-item.accuracy-low .insight-value {
+            color: #e74c3c;
+        }
+
+        .insight-description {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+
+        @media (max-width: 1200px) {
+            .content {
+                grid-template-columns: 1fr 1fr;
+            }
+            
+            .content.system-prompt-visible {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .filter-controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .insights-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .prediction-details {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>ICL Classification Results Viewer</h1>
+            <div class="controls">
+                <input type="file" id="fileInput" class="file-input" accept=".json" />
+                <select id="sampleSelector" class="sample-selector" disabled>
+                    <option value="">Select a sample...</option>
+                </select>
+                <button id="toggleSystemPrompt" class="toggle-system-prompt-btn" onclick="toggleSystemPrompt()" disabled>
+                    Show System Prompt
+                </button>
+            </div>
+            <div class="filter-controls" id="filterControls" style="display: none;">
+                <div class="filter-section">
+                    <label>Filter by Result:</label>
+                    <select id="resultFilter">
+                        <option value="all">All Results</option>
+                        <option value="correct">Correct Only</option>
+                        <option value="incorrect">Incorrect Only</option>
+                    </select>
+                </div>
+                <div class="filter-section">
+                    <label>Sort by:</label>
+                    <select id="sortBy">
+                        <option value="task_id">Task ID</option>
+                        <option value="correctness">Correctness</option>
+                        <option value="ground_truth">Ground Truth</option>
+                        <option value="predicted">Predicted</option>
+                    </select>
+                </div>
+                <button id="applyFilters" class="apply-filters-btn">Apply Filters</button>
+            </div>
+            <div class="metrics" id="metrics"></div>
+        </div>
+
+        <div id="content" style="display: none;">
+            <div class="insights-panel" id="insightsPanel">
+                <div class="insights-header">Classification Results</div>
+                <div class="insights-grid" id="insightsGrid">
+                    <!-- Insights will be populated here -->
+                </div>
+            </div>
+            
+            <div class="confusion-matrix" id="confusionMatrix">
+                <div class="matrix-title">Confusion Matrix</div>
+                <div class="matrix-container">
+                    <table class="matrix-table" id="matrixTable">
+                        <!-- Matrix will be populated here -->
+                    </table>
+                </div>
+                <div class="matrix-stats" id="matrixStats">
+                    <!-- Matrix statistics will be populated here -->
+                </div>
+            </div>
+            
+            <div class="content" id="mainContent">
+                <div class="panel" id="systemPromptPanel" style="display: none;">
+                    <div class="panel-header system-prompt-header">
+                        <span>System Prompt (with Few-shot Examples)</span>
+                        <button class="maximize-btn" onclick="toggleMaximize('systemPromptPanel')">Maximize</button>
+                    </div>
+                    <div class="panel-content">
+                        <div class="code-block" id="systemPromptContent">No data loaded</div>
+                    </div>
+                </div>
+
+                <div class="panel" id="problemPanel">
+                    <div class="panel-header problem-header">
+                        <span>Problem & Solution</span>
+                        <button class="maximize-btn" onclick="toggleMaximize('problemPanel')">Maximize</button>
+                    </div>
+                    <div class="panel-content">
+                        <div class="code-block" id="problemContent">No data loaded</div>
+                    </div>
+                </div>
+
+                <div class="panel" id="responsePanel">
+                    <div class="panel-header response-header">
+                        <span>LLM Response & Classification</span>
+                        <button class="maximize-btn" onclick="toggleMaximize('responsePanel')">Maximize</button>
+                    </div>
+                    <div class="panel-content">
+                        <div class="code-block" id="responseContent">No data loaded</div>
+                        <div id="classificationResult"></div>
+                        <div id="predictionDetails"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            Load a JSON ICL results file to get started
+        </div>
+    </div>
+
+    <script>
+        let evaluationData = null;
+        let currentSample = null;
+        let allSamples = [];
+        let filteredSamples = [];
+        let maximizedPanel = null;
+        let showSystemPrompt = false;
+
+        function toggleMaximize(panelId) {
+            const panel = document.getElementById(panelId);
+            const contentDiv = document.getElementById('mainContent');
+            const allPanels = document.querySelectorAll('.panel');
+            const button = panel.querySelector('.maximize-btn');
+
+            if (maximizedPanel === panelId) {
+                // Minimize - show all panels
+                allPanels.forEach(p => p.classList.remove('hidden'));
+                contentDiv.classList.remove('maximized');
+                button.textContent = 'Maximize';
+                maximizedPanel = null;
+            } else {
+                // Maximize - hide other panels
+                allPanels.forEach(p => {
+                    if (p.id !== panelId) {
+                        p.classList.add('hidden');
+                    } else {
+                        p.classList.remove('hidden');
+                    }
+                });
+                contentDiv.classList.add('maximized');
+                
+                // Update all buttons
+                allPanels.forEach(p => {
+                    const btn = p.querySelector('.maximize-btn');
+                    if (p.id === panelId) {
+                        btn.textContent = 'Minimize';
+                    } else {
+                        btn.textContent = 'Maximize';
+                    }
+                });
+                
+                maximizedPanel = panelId;
+            }
+        }
+
+        function toggleSystemPrompt() {
+            const systemPromptPanel = document.getElementById('systemPromptPanel');
+            const mainContent = document.getElementById('mainContent');
+            const toggleBtn = document.getElementById('toggleSystemPrompt');
+            
+            showSystemPrompt = !showSystemPrompt;
+            
+            if (showSystemPrompt) {
+                systemPromptPanel.style.display = 'block';
+                mainContent.classList.add('system-prompt-visible');
+                toggleBtn.textContent = 'Hide System Prompt';
+                displaySystemPrompt();
+            } else {
+                systemPromptPanel.style.display = 'none';
+                mainContent.classList.remove('system-prompt-visible');
+                toggleBtn.textContent = 'Show System Prompt';
+            }
+        }
+
+        const fileInput = document.getElementById('fileInput');
+        const sampleSelector = document.getElementById('sampleSelector');
+        const filterControls = document.getElementById('filterControls');
+        const resultFilter = document.getElementById('resultFilter');
+        const sortBy = document.getElementById('sortBy');
+        const applyFilters = document.getElementById('applyFilters');
+        const toggleSystemPromptBtn = document.getElementById('toggleSystemPrompt');
+
+        fileInput.addEventListener('change', handleFileLoad);
+        sampleSelector.addEventListener('change', handleSampleChange);
+        applyFilters.addEventListener('click', applyFiltersAndSort);
+        resultFilter.addEventListener('change', applyFiltersAndSort);
+        sortBy.addEventListener('change', applyFiltersAndSort);
+
+        function handleFileLoad(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    evaluationData = JSON.parse(e.target.result);
+                    loadSamples();
+                    showOverallMetrics();
+                    generateInsights();
+                    generateConfusionMatrix();
+                    filterControls.style.display = 'flex';
+                    toggleSystemPromptBtn.disabled = false;
+                } catch (error) {
+                    showError('Error parsing JSON: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function loadSamples() {
+            if (!evaluationData || !evaluationData.results) return;
+
+            allSamples = evaluationData.results.map((result, index) => ({
+                ...result,
+                index: index
+            }));
+
+            applyFiltersAndSort();
+            sampleSelector.disabled = false;
+        }
+
+        function showOverallMetrics() {
+            if (!evaluationData) return;
+
+            const metricsDiv = document.getElementById('metrics');
+            
+            // Calculate failed extractions (empty or null extracted_answer)
+            const failedExtractions = evaluationData.results ? 
+                evaluationData.results.filter(result => !result.extracted_answer || result.extracted_answer.trim() === '').length : 0;
+            
+            const metrics = [
+                `<div class="metric">Model: ${evaluationData.model || 'Unknown'}</div>`,
+                `<div class="metric">Shots: ${evaluationData.num_shots || 0}</div>`,
+                `<div class="metric">Total Samples: ${evaluationData.total_samples || 0}</div>`,
+                `<div class="metric">Correct: ${evaluationData.correct_predictions || 0}</div>`,
+                `<div class="metric">Failed Extractions: ${evaluationData.failed_extractions || failedExtractions}</div>`,
+                `<div class="metric accuracy">Accuracy: ${((evaluationData.accuracy || 0) * 100).toFixed(1)}%</div>`
+            ];
+
+            if (evaluationData.date) {
+                metrics.push(`<div class="metric">Date: ${evaluationData.date}</div>`);
+            }
+
+            if (evaluationData.is_reasoning !== undefined) {
+                metrics.push(`<div class="metric">Reasoning: ${evaluationData.is_reasoning ? 'Yes' : 'No'}</div>`);
+            }
+
+            if (evaluationData.use_descriptive_labels !== undefined) {
+                metrics.push(`<div class="metric">Labels: ${evaluationData.use_descriptive_labels ? 'Descriptive' : 'Generic'}</div>`);
+            }
+
+            if (evaluationData.prompt_info) {
+                metrics.push(`<div class="metric">Approach: ${evaluationData.prompt_info.approach}</div>`);
+            }
+
+            metricsDiv.innerHTML = metrics.join('');
+        }
+
+        function generateInsights() {
+            if (!evaluationData || !evaluationData.results) return;
+
+            const total = evaluationData.total_samples || 0;
+            const correct = evaluationData.correct_predictions || 0;
+            const accuracy = evaluationData.accuracy || 0;
+            
+            // Calculate failed extractions
+            const failedExtractions = evaluationData.results.filter(result => 
+                !result.extracted_answer || result.extracted_answer.trim() === '').length;
+            const failedExtractionRate = total > 0 ? failedExtractions / total : 0;
+
+            // Count by ground truth labels - handle both descriptive and generic labels
+            const groundTruthCounts = {};
+            const correctByGroundTruth = {};
+            
+            // Get unique ground truth labels
+            const uniqueLabels = [...new Set(evaluationData.results.map(r => r.ground_truth))];
+            uniqueLabels.forEach(label => {
+                groundTruthCounts[label] = 0;
+                correctByGroundTruth[label] = 0;
+            });
+
+            evaluationData.results.forEach(result => {
+                const gt = result.ground_truth;
+                if (gt in groundTruthCounts) {
+                    groundTruthCounts[gt]++;
+                    if (result.is_correct) {
+                        correctByGroundTruth[gt]++;
+                    }
+                }
+            });
+
+            const insights = [
+                {
+                    title: 'Overall Accuracy',
+                    value: `${(accuracy * 100).toFixed(1)}%`,
+                    description: `${correct} out of ${total} samples classified correctly`,
+                    type: accuracy >= 0.8 ? 'accuracy-high' : accuracy >= 0.5 ? '' : 'accuracy-low'
+                },
+                {
+                    title: 'Failed Extractions',
+                    value: failedExtractions,
+                    description: `${(failedExtractionRate * 100).toFixed(1)}% of responses had no valid answer extracted`,
+                    type: failedExtractionRate >= 0.2 ? 'accuracy-low' : failedExtractionRate >= 0.1 ? '' : 'accuracy-high'
+                },
+                {
+                    title: 'Correct Predictions',
+                    value: correct,
+                    description: `Successfully classified ${correct} samples`,
+                    type: ''
+                },
+                ...Object.keys(groundTruthCounts).map(label => {
+                    const count = groundTruthCounts[label];
+                    const correct = correctByGroundTruth[label];
+                    const accuracy = count > 0 ? correct / count : 0;
+                    
+                    return {
+                        title: `${label} Accuracy`,
+                        value: count > 0 ? `${(accuracy * 100).toFixed(1)}%` : 'N/A',
+                        description: `${correct}/${count} ${label.toLowerCase()} samples classified correctly`,
+                        type: count > 0 && accuracy >= 0.8 ? 'accuracy-high' : count > 0 && accuracy < 0.5 ? 'accuracy-low' : ''
+                    };
+                })
+            ];
+
+            const insightsGrid = document.getElementById('insightsGrid');
+            insightsGrid.innerHTML = insights.map(insight => `
+                <div class="insight-item ${insight.type}">
+                    <div class="insight-title">${insight.title}</div>
+                    <div class="insight-value">${insight.value}</div>
+                    <div class="insight-description">${insight.description}</div>
+                </div>
+            `).join('');
+        }
+
+        function applyFiltersAndSort() {
+            if (!allSamples.length) return;
+
+            // Filter samples
+            const resultFilterValue = resultFilter.value;
+            filteredSamples = allSamples.filter(sample => {
+                if (resultFilterValue === 'all') return true;
+                if (resultFilterValue === 'correct') return sample.is_correct;
+                if (resultFilterValue === 'incorrect') return !sample.is_correct;
+                return true;
+            });
+
+            // Sort samples
+            const sortByValue = sortBy.value;
+            filteredSamples.sort((a, b) => {
+                if (sortByValue === 'task_id') {
+                    return a.task_id.localeCompare(b.task_id);
+                } else if (sortByValue === 'correctness') {
+                    return b.is_correct - a.is_correct; // Correct first
+                } else if (sortByValue === 'ground_truth') {
+                    return a.ground_truth.localeCompare(b.ground_truth);
+                } else if (sortByValue === 'predicted') {
+                    return a.extracted_answer.localeCompare(b.extracted_answer);
+                }
+                return 0;
+            });
+
+            updateSampleSelector();
+        }
+
+        function updateSampleSelector() {
+            sampleSelector.innerHTML = '<option value="">Select a sample...</option>';
+            
+            filteredSamples.forEach((sample, index) => {
+                const option = document.createElement('option');
+                option.value = sample.index;
+                
+                const statusIndicator = sample.is_correct ? '✅' : '❌';
+                const truncatedId = sample.task_id.length > 30 
+                    ? sample.task_id.substring(0, 30) + '...' 
+                    : sample.task_id;
+                option.textContent = `${statusIndicator} ${truncatedId} (${sample.ground_truth} → ${sample.extracted_answer || '?'})`;
+                
+                sampleSelector.appendChild(option);
+            });
+            
+            const loadingDiv = document.getElementById('loading');
+            loadingDiv.textContent = `Showing ${filteredSamples.length}/${allSamples.length} samples. Select a sample to view details.`;
+        }
+
+        function handleSampleChange(event) {
+            const sampleIndex = parseInt(event.target.value);
+            if (isNaN(sampleIndex) || !evaluationData) return;
+
+            currentSample = evaluationData.results[sampleIndex];
+            displaySample(currentSample);
+            
+            document.getElementById('content').style.display = 'block';
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function displaySample(sample) {
+            // Display sample content - handle both old and new format
+            let problemContent;
+            if (sample.problem && sample.corrupted_solution && sample.canonical_solution) {
+                // Old format
+                problemContent = `Problem: ${sample.problem}
+
+Corrupted Solution:
+\`\`\`python
+${sample.corrupted_solution}
+\`\`\`
+
+Canonical Solution:
+\`\`\`python
+${sample.canonical_solution}
+\`\`\``;
+            } else {
+                // New format - sample is the code to classify
+                problemContent = `Code Sample to Classify:
+\`\`\`python
+${sample.sample || sample}
+\`\`\``;
+            }
+
+            document.getElementById('problemContent').textContent = problemContent;
+
+            // Display LLM response
+            let responseContent = sample.llm_response || 'No response available';
+            
+            // Add reasoning if available
+            if (sample.reasoning && sample.reasoning.trim()) {
+                responseContent = `Reasoning:\n${sample.reasoning}\n\nResponse:\n${responseContent}`;
+            }
+            
+            document.getElementById('responseContent').textContent = responseContent;
+
+            // Display classification result
+            const isCorrect = sample.is_correct;
+            const resultDiv = document.getElementById('classificationResult');
+            resultDiv.className = `classification-result ${isCorrect ? 'classification-correct' : 'classification-incorrect'}`;
+            resultDiv.textContent = isCorrect ? '✅ CORRECT CLASSIFICATION' : '❌ INCORRECT CLASSIFICATION';
+
+            // Display prediction details
+            const detailsDiv = document.getElementById('predictionDetails');
+            detailsDiv.innerHTML = `
+                <div class="prediction-item ground-truth">
+                    <strong>Ground Truth</strong><br>
+                    ${sample.ground_truth}
+                </div>
+                <div class="prediction-item predicted">
+                    <strong>Extracted Answer</strong><br>
+                    ${sample.extracted_answer || 'None'}
+                </div>
+                <div class="prediction-item extracted">
+                    <strong>Match</strong><br>
+                    ${sample.extracted_answer === sample.ground_truth ? 'Yes' : 'No'}
+                </div>
+            `;
+
+            // Update system prompt if visible
+            if (showSystemPrompt) {
+                displaySystemPrompt();
+            }
+        }
+
+        function displaySystemPrompt() {
+            if (!evaluationData) return;
+            
+            let systemPromptContent = 'System prompt not available in results file.';
+            
+            // Use actual system prompt from results file if available
+            if (evaluationData.system_prompt) {
+                systemPromptContent = evaluationData.system_prompt;
+            } else if (evaluationData.num_shots !== undefined) {
+                // Fallback: reconstruct basic prompt structure
+                systemPromptContent = `Base Prompt:
+You are tasked with determining whether a given code solution is corrupted or canonical. 
+
+A CORRUPTED solution contains bugs, errors, or incorrect implementations that would cause the code to fail or produce wrong results.
+A CANONICAL solution is correct, well-implemented, and would pass all tests.
+
+Your task is to analyze the given problem and solution, then classify it as either CORRUPTED or CANONICAL.
+
+You must end your response with <answer>CORRUPTED</answer> or <answer>CANONICAL</answer>.
+
+${evaluationData.num_shots > 0 ? `\nFew-shot Examples: ${evaluationData.num_shots} examples would be shown here during actual evaluation.\n\nNow analyze the following:` : ''}`;
+            }
+            
+            document.getElementById('systemPromptContent').textContent = systemPromptContent;
+        }
+
+        function generateConfusionMatrix() {
+            if (!evaluationData || !evaluationData.results) return;
+
+            // Get unique labels
+            const allLabels = [...new Set([
+                ...evaluationData.results.map(r => r.ground_truth),
+                ...evaluationData.results.map(r => r.extracted_answer)
+            ])].filter(Boolean).sort();
+
+            // Initialize confusion matrix
+            const matrix = {};
+            allLabels.forEach(trueLabel => {
+                matrix[trueLabel] = {};
+                allLabels.forEach(predLabel => {
+                    matrix[trueLabel][predLabel] = 0;
+                });
+            });
+
+            // Populate matrix
+            evaluationData.results.forEach(result => {
+                const trueLabel = result.ground_truth;
+                const predLabel = result.extracted_answer || 'No Answer';
+                if (matrix[trueLabel] && matrix[trueLabel][predLabel] !== undefined) {
+                    matrix[trueLabel][predLabel]++;
+                }
+            });
+
+            // Create HTML table
+            const table = document.getElementById('matrixTable');
+            let html = `
+                <tr>
+                    <th rowspan="2">Actual</th>
+                    <th colspan="${allLabels.length}">Predicted</th>
+                </tr>
+                <tr>
+                    ${allLabels.map(label => `<th>${label}</th>`).join('')}
+                </tr>
+            `;
+
+            allLabels.forEach(trueLabel => {
+                html += `<tr><td class="row-header">${trueLabel}</td>`;
+                allLabels.forEach(predLabel => {
+                    const count = matrix[trueLabel][predLabel];
+                    const cellClass = trueLabel === predLabel ? (count > 0 ? 'tp' : 'tn') : (count > 0 ? 'fp' : 'fn');
+                    html += `<td class="matrix-cell ${cellClass}">${count}</td>`;
+                });
+                html += '</tr>';
+            });
+
+            table.innerHTML = html;
+
+            // Calculate and display statistics
+            const stats = calculateMatrixStats(matrix, allLabels);
+            const statsDiv = document.getElementById('matrixStats');
+            statsDiv.innerHTML = Object.entries(stats).map(([key, value]) => `
+                <div class="matrix-stat">
+                    <div class="matrix-stat-value">${value}</div>
+                    <div class="matrix-stat-label">${key}</div>
+                </div>
+            `).join('');
+        }
+
+        function calculateMatrixStats(matrix, labels) {
+            const total = Object.values(matrix).reduce((sum, row) => 
+                sum + Object.values(row).reduce((rowSum, count) => rowSum + count, 0), 0);
+            
+            let truePositives = 0;
+            let falsePositives = 0;
+            let falseNegatives = 0;
+            let trueNegatives = 0;
+
+            labels.forEach(label => {
+                const tp = matrix[label][label] || 0;
+                const fp = labels.reduce((sum, predLabel) => 
+                    predLabel !== label ? sum + (matrix[predLabel][label] || 0) : sum, 0);
+                const fn = labels.reduce((sum, predLabel) => 
+                    predLabel !== label ? sum + (matrix[label][predLabel] || 0) : sum, 0);
+                
+                truePositives += tp;
+                falsePositives += fp;
+                falseNegatives += fn;
+            });
+
+            trueNegatives = total - truePositives - falsePositives - falseNegatives;
+
+            const precision = truePositives + falsePositives > 0 ? 
+                (truePositives / (truePositives + falsePositives)) : 0;
+            const recall = truePositives + falseNegatives > 0 ? 
+                (truePositives / (truePositives + falseNegatives)) : 0;
+            const f1Score = precision + recall > 0 ? 
+                (2 * precision * recall) / (precision + recall) : 0;
+
+            return {
+                'Precision': precision.toFixed(3),
+                'Recall': recall.toFixed(3),
+                'F1-Score': f1Score.toFixed(3),
+                'True Positives': truePositives,
+                'False Positives': falsePositives,
+                'False Negatives': falseNegatives
+            };
+        }
+
+        function showError(message) {
+            const loadingDiv = document.getElementById('loading');
+            loadingDiv.innerHTML = `<div class="error">${message}</div>`;
+        }
+    </script>
+</body>
+</html>
