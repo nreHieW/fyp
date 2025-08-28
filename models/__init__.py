@@ -32,6 +32,8 @@ def get_model(model_name: str, is_reasoning: bool) -> BaseModel:
             model_name.replace("google/", ""),
             api_key=os.getenv("GEMINI_API_KEY"),
         )
+    elif "local" in model_name:
+        return OpenAICompatibleModel(is_reasoning, model_name.replace("local/", ""), base_url="http://localhost:8000/v1/")
     else:
         return OpenRouterModel(
             is_reasoning,
