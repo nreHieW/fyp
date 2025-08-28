@@ -37,7 +37,7 @@ class OpenAICompatibleModel(BaseModel):
 
             # Add reasoning_effort parameter if reasoning effort level is detected
             if self.reasoning_effort_level:
-                request_params["reasoning_effort"] = self.reasoning_effort_level
+                request_params["reasoning"] = self.reasoning_effort_level
 
             response = self.client.chat.completions.create(**request_params)
 

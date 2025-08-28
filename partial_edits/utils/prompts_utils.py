@@ -75,7 +75,7 @@ def generate_shots(questions, num_shots, include_test_cases=False):
     return shots_string, remaining_questions
 
 
-def create_user_message(problem_statement, corrupted_solution, is_explicit=False, is_generic=False, test_code=None):
+def create_user_message(problem_statement, corrupted_solution, is_explicit=False, test_code=None):
     """Create the user message template for the problem."""
     base_message = "I am trying to implement a function with the following specifications:\n" f"{problem_statement}.\n\n" "The function I have written so far is:\n" f"{corrupted_solution} \n\n"
 
@@ -90,7 +90,7 @@ def create_user_message(problem_statement, corrupted_solution, is_explicit=False
     return base_message + "Wrap your response in ```python and ```"
 
 
-def get_system_prompt_with_shots(shots_string, num_shots, is_explicit=False, is_generic=False):
+def get_system_prompt_with_shots(shots_string, is_explicit=False, is_generic=False):
     """Get the appropriate system prompt based on whether shots are provided."""
     if shots_string:
         base_prompt = FEW_SHOT_SYSTEM_PROMPT_EXPLICIT if is_explicit else FEW_SHOT_SYSTEM_PROMPT
