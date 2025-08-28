@@ -2,6 +2,7 @@ import json
 import os
 import argparse
 import sys
+from datetime import datetime
 
 from dotenv import load_dotenv
 
@@ -10,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.extract_utils import *
 from utils.prompts_utils import generate_shots, create_user_message, get_system_prompt_with_shots
 from models import get_model
+from evaluate import SimilarityCalculator, _process_similarity_metrics, _calculate_corpus_metrics, _compute_difference_with_canonical
 
 load_dotenv(override=True)
 
@@ -40,9 +42,9 @@ def get_args():
     parser.add_argument("--is_reasoning", action="store_true", help="Whether to use reasoning model")
     parser.add_argument("--questions_path", type=str, required=True, help="Path to the JSONL file containing questions")
     parser.add_argument("--num_shots", type=int, default=0, help="Number of shots to use for few-shot learning")
-    parser.add_argument("--is_explicit", action="store_true", help="Whether to use explicit prompts with more detailed instructions")
+    parser.add_argument("--is_explicit", action="store_true", help="Whether to end the user message with the instruction")
     parser.add_argument("--include_test_cases", action="store_true", help="Whether to include test cases in the user message")
-    parser.add_argument("--generic", action="store_true", help="Use generic mode without minimal editing instructions (only allowed with num_shots=0)")
+    parser.add_argument("--generic", action="store_true", help="Use generic mode without minimal editing instructions (in system prompt) (only allowed with num_shots=0)")
     parser.add_argument("--store_token_info", action="store_true", help="Whether to store token usage information on a per-sample basis")
     args = parser.parse_args()
 
@@ -60,7 +62,7 @@ def _prepare_batch_data(questions, processed_task_ids, args):
     for problem in questions:
         if problem["task_id"] in processed_task_ids:
             continue
-        user_message = create_user_message(problem["prompt"], problem["corrupted_solution"], args.is_explicit, args.generic, test_code=problem["test_code"] if args.include_test_cases else None)
+        user_message = create_user_message(problem["prompt"], problem["corrupted_solution"], args.is_explicit, test_code=problem["test_code"] if args.include_test_cases else None)
         batch_data.append({"message": user_message, "problem": problem, "user_message": user_message})
 
     return batch_data
@@ -108,7 +110,7 @@ def main():
 
     shots_string, questions = generate_shots(questions, args.num_shots, args.include_test_cases)
 
-    system_prompt = get_system_prompt_with_shots(shots_string, args.num_shots, args.is_explicit, args.generic)
+    system_prompt = get_system_prompt_with_shots(shots_string, args.is_explicit, args.generic)
     explicit_mode = "explicit" if args.is_explicit else "standard"
     test_cases_mode = "with test cases" if args.include_test_cases else "without test cases"
     if args.num_shots > 0:
@@ -137,12 +139,59 @@ def main():
             {**existing_results[q["task_id"]], "solution": extract_code_from_response(existing_results[q["task_id"]]["llm_response"])} for q in questions if q["task_id"] in existing_results
         ]
 
+        # Compute similarity metrics for re-extracted results
+        try:
+            similarity_calc = SimilarityCalculator()
+            eval_map = {}
+            for rec in updated_results:
+                task_id = rec.get("task_id")
+                task_data = {
+                    "canonical_solution": rec.get("canonical_solution", ""),
+                    "corrupted_solution": rec.get("corrupted_solution", ""),
+                    "solution": rec.get("solution", ""),
+                }
+                per_metrics = _process_similarity_metrics(task_data, True, similarity_calc)
+                # Difference helper expects canonical_vs_corrupted and llm_vs_corrupted keys
+                per_metrics["difference_with_canonical"] = _compute_difference_with_canonical(per_metrics)
+                rec["similarity_metrics"] = per_metrics
+                eval_map[task_id] = {
+                    "canonical_solution": task_data["canonical_solution"],
+                    "corrupted_solution": task_data["corrupted_solution"],
+                    "solution": task_data["solution"],
+                    "similarity_metrics": per_metrics,
+                }
+
+            avg_similarity = _calculate_corpus_metrics({"eval": eval_map}, True)
+        except Exception as e:
+            print(f"Warning: similarity metric computation failed during re-extraction: {e}")
+            eval_map = {}
+            avg_similarity = {}
+
+        # Write updated per-sample results back to the main JSONL file
         with open(output_file, "w") as f:
             for result in updated_results:
                 f.write(json.dumps(result) + "\n")
 
-        print(f"Updated {len(updated_results)} results with re-extracted code")
-        # model.print_usage()
+        # Persist a summary metrics file alongside the results
+        try:
+            results_dir = os.path.join(os.path.dirname(output_file), "results")
+            os.makedirs(results_dir, exist_ok=True)
+            summary_path = os.path.join(results_dir, os.path.basename(output_file).replace(".jsonl", "_reextract_eval_results.json"))
+            summary_obj = {
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "eval": eval_map,
+                "metrics": {
+                    "eval_similarity": True,
+                    "similarity_metrics": avg_similarity,
+                },
+            }
+            with open(summary_path, "w") as fsum:
+                json.dump(summary_obj, fsum, indent=2)
+            print(f"Re-extraction similarity metrics saved to {summary_path}")
+        except Exception as e:
+            print(f"Warning: failed to save re-extraction similarity metrics: {e}")
+
+        print(f"Updated {len(updated_results)} results with re-extracted code and computed similarity metrics")
         return
 
     print(f"Skipping {len(processed_task_ids)}/{len(questions)} tasks")

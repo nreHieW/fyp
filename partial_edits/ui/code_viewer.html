@@ -83,6 +83,13 @@
             font-weight: bold;
         }
 
+        .toggle-comments {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 14px;
+        }
+
         .content {
             display: grid;
             grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
@@ -591,6 +598,7 @@
                 <select id="taskSelector" class="task-selector" disabled>
                     <option value="">Select a task...</option>
                 </select>
+                <label class="toggle-comments"><input type="checkbox" id="ignoreCommentsToggle" /> Ignore comments</label>
                 <span id="fileTypeBadge" class="file-type-badge" style="display: none;"></span>
             </div>
             <div class="filter-controls" id="filterControls" style="display: none;">
@@ -762,6 +770,7 @@
         let maximizedPanel = null;
         let maximizedReasoning = false;
         let reasoningExpanded = false;
+        let ignoreCommentsMode = false;
 
         function toggleReasoningExpansion() {
             const reasoningContentContainer = document.getElementById('reasoningContentContainer');
@@ -888,6 +897,7 @@
         const applyFilters = document.getElementById('applyFilters');
         const insightsPanel = document.getElementById('insightsPanel');
         const insightsGrid = document.getElementById('insightsGrid');
+        const ignoreCommentsToggle = document.getElementById('ignoreCommentsToggle');
 
         fileInput.addEventListener('change', handleFileLoad);
         taskSelector.addEventListener('change', handleTaskChange);
@@ -896,6 +906,7 @@
         statusFilter.addEventListener('change', applyFiltersAndSort);
         sortBy.addEventListener('change', applyFiltersAndSort);
         metricComparison.addEventListener('change', applyFiltersAndSort);
+        ignoreCommentsToggle.addEventListener('change', handleIgnoreCommentsToggle);
 
         function handleFileLoad(event) {
             const file = event.target.files[0];
@@ -1148,6 +1159,14 @@
             
             contentDiv.style.display = 'block';
             loadingDiv.style.display = 'none';
+        }
+
+        function handleIgnoreCommentsToggle() {
+            ignoreCommentsMode = ignoreCommentsToggle.checked;
+            if (currentTask && evaluationData && evaluationData.eval[currentTask]) {
+                displayCode(evaluationData.eval[currentTask]);
+                updateDiff();
+            }
         }
         
         function applyFiltersAndSort() {
@@ -1428,9 +1447,13 @@
 
         function displayCode(taskData) {
             // Display content with truncation for performance
-            displayCodePanel('corruptedCode', taskData.corrupted_solution || 'No corrupted solution available');
-            displayCodePanel('originalCode', taskData.canonical_solution || 'No original solution available');
-            displayCodePanel('llmCode', taskData.solution || 'No LLM solution available');
+            const corruptedShown = ignoreCommentsMode ? stripComments(taskData.corrupted_solution || '') : (taskData.corrupted_solution || '');
+            const originalShown = ignoreCommentsMode ? stripComments(taskData.canonical_solution || '') : (taskData.canonical_solution || '');
+            const llmShown = ignoreCommentsMode ? stripComments(taskData.solution || '') : (taskData.solution || '');
+
+            displayCodePanel('corruptedCode', corruptedShown || 'No corrupted solution available');
+            displayCodePanel('originalCode', originalShown || 'No original solution available');
+            displayCodePanel('llmCode', llmShown || 'No LLM solution available');
 
             // Display raw LLM response and prompt if available
             if (taskData.llm_response && taskData.prompt) {
@@ -1670,24 +1693,43 @@
             
             const diffType = diffSelector.value;
             const diffView = document.getElementById('diffView');
-            
-            // Check if we have pre-calculated diffs
+
+            // If ignoring comments, compute client-side diffs on sanitized code
+            if (ignoreCommentsMode) {
+                let leftText = '', rightText = '', label1 = '', label2 = '';
+                switch (diffType) {
+                    case 'corrupted-original':
+                        leftText = taskData.corrupted_solution || '';
+                        rightText = taskData.canonical_solution || '';
+                        label1 = 'Corrupted';
+                        label2 = 'Original';
+                        break;
+                    case 'corrupted-llm':
+                        leftText = taskData.corrupted_solution || '';
+                        rightText = taskData.solution || '';
+                        label1 = 'Corrupted';
+                        label2 = 'LLM';
+                        break;
+                    case 'original-llm':
+                        leftText = taskData.canonical_solution || '';
+                        rightText = taskData.solution || '';
+                        label1 = 'Original';
+                        label2 = 'LLM';
+                        break;
+                }
+
+                const sanitizedLeft = stripComments(leftText);
+                const sanitizedRight = stripComments(rightText);
+                displayComputedDiff(label1, label2, sanitizedLeft, sanitizedRight, diffView);
+                return;
+            }
+
+            // Otherwise, prefer pre-calculated diffs when available
             if (taskData.diffs && fileType === 'evaluation') {
                 displayPreCalculatedDiff(taskData.diffs, diffType, diffView);
             } else {
-                // For solutions files without evaluation, show message
-                if (fileType === 'solutions') {
-                    diffView.innerHTML = `
-                        <div style="padding: 20px; text-align: center; color: #888;">
-                            <h3>No diff available</h3>
-                            <p>This is a solutions file without evaluation results.</p>
-                            <p>Use the individual code panels above to compare manually.</p>
-                        </div>
-                    `;
-                } else {
-                    // Fallback to old diff calculation if no pre-calculated diffs
-                    calculateDiffFallback(taskData, diffType, diffView);
-                }
+                // Fallback to old diff calculation if no pre-calculated diffs
+                calculateDiffFallback(taskData, diffType, diffView);
             }
         }
 
@@ -1769,6 +1811,130 @@
                     <p>Use the individual code panels above to compare manually.</p>
                 </div>
             `;
+        }
+
+        function stripComments(code) {
+            // Python-only comment/docstring stripping
+            // - Remove triple-quoted docstrings ("""...""" or '''...''') even if multi-line
+            // - Remove full-line comments starting with #
+            // - Remove inline # comments outside of strings
+            if (!code) return code;
+            let text = code;
+            try { text = text.replace(/(^|[^\\])("""|''')[\s\S]*?\2/gm, (m, p1) => p1 || ''); } catch (e) {}
+
+            function stripInlineHash(line) {
+                let inSingle = false, inDouble = false, escaped = false;
+                for (let i = 0; i < line.length; i++) {
+                    const ch = line[i];
+                    if (escaped) { escaped = false; continue; }
+                    if (ch === '\\') { escaped = true; continue; }
+                    if (!inDouble && ch === '\'') { inSingle = !inSingle; continue; }
+                    if (!inSingle && ch === '"') { inDouble = !inDouble; continue; }
+                    if (!inSingle && !inDouble && ch === '#') {
+                        return line.slice(0, i).trimEnd();
+                    }
+                }
+                return line;
+            }
+
+            const lines = text.split('\n');
+            const filtered = [];
+            for (let line of lines) {
+                if (/^\s*#/.test(line)) continue; // full-line comment
+                line = stripInlineHash(line);
+                filtered.push(line);
+            }
+            return filtered.join('\n');
+        }
+
+        function computeStructuredDiff(leftText, rightText) {
+            const a = (leftText || '').split('\n');
+            const b = (rightText || '').split('\n');
+            const N = a.length, M = b.length;
+            const MAX_LINES = 8000; // guard for very large files
+            if (N + M > MAX_LINES) {
+                return [{ type: 'summary', content: 'Files too large for client-side diff. Please narrow your selection or disable "Ignore comments".' }];
+            }
+
+            const trace = [];
+            const v = new Map();
+            v.set(1, 0);
+            let dFound = 0;
+
+            outer: for (let d = 0; d <= N + M; d++) {
+                const vd = new Map(v); // snapshot for backtracking
+                trace.push(vd);
+                for (let k = -d; k <= d; k += 2) {
+                    let x;
+                    const vkm1 = v.has(k - 1) ? v.get(k - 1) : -Infinity;
+                    const vkp1 = v.has(k + 1) ? v.get(k + 1) : -Infinity;
+                    if (k === -d || (k !== d && vkm1 < vkp1)) {
+                        x = vkp1; // down (insert in b)
+                    } else {
+                        x = vkm1 + 1; // right (delete from a)
+                    }
+                    let y = x - k;
+                    while (x < N && y < M && a[x] === b[y]) { x++; y++; }
+                    v.set(k, x);
+                    if (x >= N && y >= M) { dFound = d; break outer; }
+                }
+            }
+
+            const result = [];
+            let x = N, y = M;
+            for (let d = dFound; d >= 0; d--) {
+                const vd = trace[d];
+                const k = x - y;
+                let prevK;
+                const vkm1 = vd.has(k - 1) ? vd.get(k - 1) : -Infinity;
+                const vkp1 = vd.has(k + 1) ? vd.get(k + 1) : -Infinity;
+                if (k === -d || (k !== d && vkm1 < vkp1)) {
+                    prevK = k + 1; // came from down (insertion)
+                } else {
+                    prevK = k - 1; // came from right (deletion)
+                }
+                const xStart = vd.has(prevK) ? vd.get(prevK) : 0;
+                const yStart = xStart - prevK;
+
+                // matched (snake)
+                while (x > xStart && y > yStart) {
+                    result.push({ type: 'context', content: a[x - 1] });
+                    x--; y--;
+                }
+                if (d === 0) break;
+                // single edit
+                if (prevK === k + 1) {
+                    // insertion from b
+                    result.push({ type: 'added', content: b[yStart] });
+                } else {
+                    // deletion from a
+                    result.push({ type: 'removed', content: a[xStart] });
+                }
+                x = xStart; y = yStart;
+            }
+            return result.reverse();
+        }
+
+        function displayComputedDiff(label1, label2, leftText, rightText, diffView) {
+            const diffData = computeStructuredDiff(leftText, rightText);
+            if (diffData.length === 1 && diffData[0].type === 'summary') {
+                diffView.innerHTML = `
+                    <div style="padding: 20px; text-align: center; color: #888;">
+                        <h3>Files too large for diff</h3>
+                        <p>${escapeHtml(diffData[0].content)}</p>
+                    </div>
+                `;
+                return;
+            }
+            let html = `<div style="margin-bottom: 10px; font-weight: bold;">${label1} → ${label2} (comments ignored)</div>`;
+            for (const item of diffData) {
+                const lineClass = item.type === 'added' ? 'line-added' : 
+                                item.type === 'removed' ? 'line-removed' : 'line-context';
+                const prefix = item.type === 'added' ? '+ ' : 
+                             item.type === 'removed' ? '- ' : '  ';
+                html += `<span class="line ${lineClass}">${escapeHtml(prefix + item.content)}</span>`;
+            }
+            diffView.innerHTML = html;
         }
 
         function escapeHtml(text) {

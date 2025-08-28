@@ -10,8 +10,8 @@ from tqdm import tqdm
 from datasets import load_dataset
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from utils.extract_utils import extract_function_body, standardize_code_formatting
-from utils.similarity_utils import (
+from partial_edits.utils.extract_utils import extract_function_body, standardize_code_formatting
+from partial_edits.utils.similarity_utils import (
     get_levenshtein_distance,
     count_diff_lines,
     get_structured_diff,

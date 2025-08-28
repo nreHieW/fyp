@@ -85,8 +85,11 @@ class OpenRouterModel(BaseModel):
                 "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                 # "max_tokens": 128000,
             }
-            if self.is_reasoning and self.thinking_effort:
-                payload["reasoning"] = {"effort": self.thinking_effort, "enabled": True}
+            if self.is_reasoning:
+                if self.thinking_effort:
+                    payload["reasoning"] = {"effort": self.thinking_effort, "enabled": True}
+                else:
+                    payload["reasoning"] = {"enabled": True}
 
             if not self.is_reasoning:
                 payload["reasoning"] = {"enabled": False}
