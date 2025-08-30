@@ -11,7 +11,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.extract_utils import *
 from utils.prompts_utils import generate_shots, create_user_message, get_system_prompt_with_shots
 from models import get_model
-from evaluate import SimilarityCalculator, _process_similarity_metrics, _calculate_corpus_metrics, _compute_difference_with_canonical
 
 load_dotenv(override=True)
 
@@ -42,6 +41,7 @@ def get_args():
     parser.add_argument("--is_reasoning", action="store_true", help="Whether to use reasoning model")
     parser.add_argument("--questions_path", type=str, required=True, help="Path to the JSONL file containing questions")
     parser.add_argument("--num_shots", type=int, default=0, help="Number of shots to use for few-shot learning")
+    parser.add_argument("--shots_file_path", type=str, help="Path to the JSONL file containing few-shot examples (required if num_shots > 0)")
     parser.add_argument("--is_explicit", action="store_true", help="Whether to end the user message with the instruction")
     parser.add_argument("--include_test_cases", action="store_true", help="Whether to include test cases in the user message")
     parser.add_argument("--generic", action="store_true", help="Use generic mode without minimal editing instructions (in system prompt) (only allowed with num_shots=0)")
@@ -53,6 +53,9 @@ def get_args():
 
     if args.generic and args.is_explicit:
         parser.error("--generic flag cannot be used with --is_explicit")
+
+    if args.num_shots > 0 and not args.shots_file_path:
+        parser.error("--shots_file_path is required when num_shots > 0")
 
     return args
 
@@ -108,13 +111,27 @@ def main():
         for line in f:
             questions.append(json.loads(line.strip()))
 
-    shots_string, questions = generate_shots(questions, args.num_shots, args.include_test_cases)
+    if args.num_shots > 0:
+        shots = []
+        with open(args.shots_file_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    shots.append(json.loads(line))
 
-    system_prompt = get_system_prompt_with_shots(shots_string, args.is_explicit, args.generic)
+        if len(shots) < args.num_shots:
+            raise ValueError(f"shots_file_path contains only {len(shots)} examples, but num_shots={args.num_shots}")
+
+        combined_for_shots = shots[: args.num_shots] + questions
+        shots_string, questions = generate_shots(combined_for_shots, args.num_shots, args.include_test_cases)
+    else:
+        shots_string, questions = generate_shots(questions, args.num_shots, args.include_test_cases)
+
+    system_prompt = get_system_prompt_with_shots(shots_string, args.generic)
     explicit_mode = "explicit" if args.is_explicit else "standard"
     test_cases_mode = "with test cases" if args.include_test_cases else "without test cases"
     if args.num_shots > 0:
-        print(f"Using {args.num_shots} few-shot examples ({explicit_mode} prompts, {test_cases_mode}). Total {len(questions)} questions from original {len(questions) + args.num_shots} questions.")
+        print(f"Using {args.num_shots} few-shot examples from {args.shots_file_path} " f"({explicit_mode} prompts, {test_cases_mode}). Total {len(questions)} questions.")
     else:
         print(f"Using zero-shot approach ({explicit_mode} prompts, {test_cases_mode}). Total {len(questions)} questions.")
 
@@ -139,57 +156,10 @@ def main():
             {**existing_results[q["task_id"]], "solution": extract_code_from_response(existing_results[q["task_id"]]["llm_response"])} for q in questions if q["task_id"] in existing_results
         ]
 
-        # Compute similarity metrics for re-extracted results
-        try:
-            similarity_calc = SimilarityCalculator()
-            eval_map = {}
-            for rec in updated_results:
-                task_id = rec.get("task_id")
-                task_data = {
-                    "canonical_solution": rec.get("canonical_solution", ""),
-                    "corrupted_solution": rec.get("corrupted_solution", ""),
-                    "solution": rec.get("solution", ""),
-                }
-                per_metrics = _process_similarity_metrics(task_data, True, similarity_calc)
-                # Difference helper expects canonical_vs_corrupted and llm_vs_corrupted keys
-                per_metrics["difference_with_canonical"] = _compute_difference_with_canonical(per_metrics)
-                rec["similarity_metrics"] = per_metrics
-                eval_map[task_id] = {
-                    "canonical_solution": task_data["canonical_solution"],
-                    "corrupted_solution": task_data["corrupted_solution"],
-                    "solution": task_data["solution"],
-                    "similarity_metrics": per_metrics,
-                }
-
-            avg_similarity = _calculate_corpus_metrics({"eval": eval_map}, True)
-        except Exception as e:
-            print(f"Warning: similarity metric computation failed during re-extraction: {e}")
-            eval_map = {}
-            avg_similarity = {}
-
         # Write updated per-sample results back to the main JSONL file
         with open(output_file, "w") as f:
             for result in updated_results:
                 f.write(json.dumps(result) + "\n")
-
-        # Persist a summary metrics file alongside the results
-        try:
-            results_dir = os.path.join(os.path.dirname(output_file), "results")
-            os.makedirs(results_dir, exist_ok=True)
-            summary_path = os.path.join(results_dir, os.path.basename(output_file).replace(".jsonl", "_reextract_eval_results.json"))
-            summary_obj = {
-                "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "eval": eval_map,
-                "metrics": {
-                    "eval_similarity": True,
-                    "similarity_metrics": avg_similarity,
-                },
-            }
-            with open(summary_path, "w") as fsum:
-                json.dump(summary_obj, fsum, indent=2)
-            print(f"Re-extraction similarity metrics saved to {summary_path}")
-        except Exception as e:
-            print(f"Warning: failed to save re-extraction similarity metrics: {e}")
 
         print(f"Updated {len(updated_results)} results with re-extracted code and computed similarity metrics")
         return

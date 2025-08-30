@@ -5,20 +5,6 @@ IMPORTANT: Try to preserve the original code and the logic of the original code 
 GENERIC_SYSTEM_PROMPT = """You are a Python Expert specializing in code analysis and debugging. When provided with a problem statement, your task is to fix the code.
 Do not change the function signature, default arguments, or docstring. Use the docstring to understand the requirements of the function."""
 
-FEW_SHOT_SYSTEM_PROMPT = """You are a Python Expert specializing in code analysis and debugging. When provided with a problem statement and example solutions, your task is to fix the code.
-
-You will be shown several examples of code problems and their solutions. For each example, carefully analyze:
-1. What issues were identified in the original code
-2. How the solution fixed those issues
-3. The style and structure of the solution
-
-When fixing the target code:
-- Follow the same debugging and problem-solving approach shown in the examples
-- Match the coding style, structure, and patterns demonstrated
-
-The examples are carefully chosen to guide you in fixing similar types of issues. Use them as a reference for how to approach and structure your solution."""
-
-
 FEW_SHOT_SYSTEM_PROMPT_EXPLICIT = """You are a Python Expert specializing in code analysis and debugging. When provided with a problem statement and example solutions, your task is to fix the code.
 
 You will be shown several examples of code problems and their solutions. For each example, carefully analyze:
@@ -29,7 +15,6 @@ You will be shown several examples of code problems and their solutions. For eac
 When fixing the target code:
 - Follow the same debugging and problem-solving approach shown in the examples
 - Match the coding style, structure, and patterns demonstrated
-- Only change the code that is necessary to fix the issue
 - Try to preserve the original code and the logic of the original code as much as possible
 
 The examples are carefully chosen to guide you in fixing similar types of issues. Use them as a reference for how to approach and structure your solution."""
@@ -90,10 +75,10 @@ def create_user_message(problem_statement, corrupted_solution, is_explicit=False
     return base_message + "Wrap your response in ```python and ```"
 
 
-def get_system_prompt_with_shots(shots_string, is_explicit=False, is_generic=False):
+def get_system_prompt_with_shots(shots_string, is_generic=False):
     """Get the appropriate system prompt based on whether shots are provided."""
     if shots_string:
-        base_prompt = FEW_SHOT_SYSTEM_PROMPT_EXPLICIT if is_explicit else FEW_SHOT_SYSTEM_PROMPT
+        base_prompt = FEW_SHOT_SYSTEM_PROMPT_EXPLICIT
         return base_prompt + "\n\nHere are some examples to guide your approach:\n" + shots_string
     else:
         return GENERIC_SYSTEM_PROMPT if is_generic else SYSTEM_PROMPT
