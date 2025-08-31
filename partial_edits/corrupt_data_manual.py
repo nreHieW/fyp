@@ -130,12 +130,6 @@ def main():
     failed_corruption_count = 0
     skipped_canonical_failures = 0
     dataset_index = 0
-    data = []
-    with open("/Users/weihern/Documents/NUS/fyp/data/questions/corrupted_solutions_manual_easy_400.jsonl", "r") as f:
-        for line in f:
-            data.append(json.loads(line))
-    ids = set([x["task_id"] for x in data])
-    len(ids)
 
     with open(output_filepath, "a") as output_file:
         # Continue until we have generated exactly N successful mutations
