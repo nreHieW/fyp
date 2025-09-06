@@ -7,10 +7,11 @@ requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.57.1",
     "codebleu>=0.7.0",
-    "datasets>=3.6.0",
+    "datasets==4.0",
     "matplotlib>=3.10.3",
     "nltk>=3.9.1",
     "openai>=1.93.0",
+    "prime>=0.3.23",
     "python-dotenv>=1.1.1",
     "python-levenshtein>=0.27.1",
     "rouge-score>=0.1.2",

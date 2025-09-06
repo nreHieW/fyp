@@ -66,19 +66,13 @@ async def execute_cb_code_sandboxed_async(
         deps_install_command = "pip install numpy pandas"
 
         # Run sandbox commands in executor to avoid blocking
-        mkdir_result = await loop.run_in_executor(
-            None, sandbox_client.execute_command, sandbox.id, "mkdir -p /sandbox-workspace"
-        )
+        mkdir_result = await loop.run_in_executor(None, sandbox_client.execute_command, sandbox.id, "mkdir -p /sandbox-workspace")
         if mkdir_result.exit_code != 0:
             raise Exception(f"Failed to create directory: stdout={mkdir_result.stdout}, stderr={mkdir_result.stderr}")
 
-        deps_install_result = await loop.run_in_executor(
-            None, sandbox_client.execute_command, sandbox.id, deps_install_command
-        )
+        deps_install_result = await loop.run_in_executor(None, sandbox_client.execute_command, sandbox.id, deps_install_command)
         if deps_install_result.exit_code != 0:
-            raise Exception(
-                f"Failed to install dependencies: stdout={deps_install_result.stdout}, stderr={deps_install_result.stderr}"
-            )
+            raise Exception(f"Failed to install dependencies: stdout={deps_install_result.stdout}, stderr={deps_install_result.stderr}")
     except SandboxNotRunningError as e:
         print(f"Sandbox not running error: {repr(e)}")
         # Return timeout-like results for all test cases
@@ -113,15 +107,11 @@ async def execute_cb_code_sandboxed_async(
                 content=wrapper_script,
             )
             if write_result.exit_code != 0:
-                raise Exception(
-                    f"Failed to write script to sandbox: stdout={write_result.stdout}, stderr={write_result.stderr}"
-                )
+                raise Exception(f"Failed to write script to sandbox: stdout={write_result.stdout}, stderr={write_result.stderr}")
 
             # Execute script in sandbox asynchronously
             command = f"bash -c 'ulimit -v 10485760; python {sandbox_script_path}'"
-            result = await loop.run_in_executor(
-                None, lambda: sandbox_client.execute_command(sandbox_id=sandbox.id, command=command, timeout=timeout)
-            )
+            result = await loop.run_in_executor(None, lambda: sandbox_client.execute_command(sandbox_id=sandbox.id, command=command, timeout=timeout))
 
             stdout, stderr = result.stdout, result.stderr
             return_code = result.exit_code
@@ -177,9 +167,7 @@ async def execute_cb_code_sandboxed_async(
                         results.append((False, EXECUTION_RESULTS[0]))  # "false"
 
                     if debug:
-                        print(
-                            f"outputs = {exec_outputs}, test outputs = {outputs}, inputs = {inputs}, {type(inputs)}, {tmp_result}"
-                        )
+                        print(f"outputs = {exec_outputs}, test outputs = {outputs}, inputs = {inputs}, {type(inputs)}, {tmp_result}")
                         debug_infos[index] = {
                             "inputs": inputs,
                             "gt_outputs": outputs,
@@ -210,8 +198,6 @@ async def execute_cb_code_sandboxed_async(
             for i in range(index + 1, len(inputs_list)):
                 results.append((False, EXECUTION_RESULTS[-2]))
             break
-
-    print(f"async_taco `execute_cb_code_sandboxed_async` test case results: {results}")
     return results, debug_infos
 
 

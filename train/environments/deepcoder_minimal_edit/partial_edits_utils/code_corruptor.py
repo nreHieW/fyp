@@ -24,8 +24,31 @@ class CodeCorruptor:
             self.mutate_conditional_inversion,
             self.mutate_range_step,
         ]
+        # Additional OOD mutations to diversify corruption space
+        self.ood_mutations = [
+            self.mutate_min_max_usage,
+            self.mutate_abs_usage,
+            self.mutate_append_extend,
+            self.mutate_enumerate_start,
+            self.mutate_break_to_continue,
+            self.mutate_dict_get_default,
+            self.mutate_string_lower_upper,
+            self.mutate_strip_variant,
+            self.mutate_join_separator,
+            self.mutate_sorted_toggle_key_len,
+            self.mutate_set_vs_list_cast,
+            self.mutate_round_to_int,
+            self.mutate_comp_filter_remove,
+            self.mutate_find_vs_index,
+            self.mutate_any_all_swap,
+            self.mutate_zip_arg_order,
+            self.mutate_len_range_endpoint,
+            self.mutate_negative_indexing_shift,
+            self.mutate_dict_items_variant,
+            self.mutate_none_equality_operator,
+        ]
 
-    def corrupt_function(self, code, max_mutations: int = 10):
+    def corrupt_function(self, code, max_mutations: int = 10, use_ood: bool = False):
         """Apply up to `max_mutations` subtle mutations to the function code.
 
         Returns (mutated_code: str | None, mutation_list: list[str] | str)
@@ -48,6 +71,8 @@ class CodeCorruptor:
 
             # Shuffle mutation order once
             mutation_order = self.mutation_types.copy()
+            if use_ood:
+                mutation_order.extend(self.ood_mutations)
             random.shuffle(mutation_order)
 
             applied_mutations = []
@@ -360,5 +385,314 @@ class CodeCorruptor:
                                 step_arg.value -= 1
                             else:
                                 step_arg.value = 2  # previously 0, unlikely but handle
+                            mutations_made = True
+        return mutations_made
+
+    # ------------------------------------------------------------------
+    # OOD mutation strategies (general, dataset-agnostic)
+    # ------------------------------------------------------------------
+
+    def mutate_min_max_usage(self, func_def):
+        """Swap built-in min/max usage in one call."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and not mutations_made:
+                if isinstance(node.func, ast.Name) and node.func.id in ("min", "max"):
+                    node.func.id = "max" if node.func.id == "min" else "min"
+                    mutations_made = True
+                elif isinstance(node.func, ast.Attribute) and node.func.attr in ("min", "max"):
+                    node.func.attr = "max" if node.func.attr == "min" else "min"
+                    mutations_made = True
+        return mutations_made
+
+    def mutate_abs_usage(self, func_def):
+        """Wrap an arithmetic expression in abs(), or unwrap an existing abs()."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if not mutations_made and isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "abs" and len(node.args) == 1:
+                # Unwrap abs(x) -> x
+                replacement = node.args[0]
+                node.func.id = "__unwrap_abs__"
+                node.args = [replacement]
+                mutations_made = True
+        if mutations_made:
+
+            class AbsUnwrapper(ast.NodeTransformer):
+                def visit_Call(self, n):
+                    if isinstance(n.func, ast.Name) and n.func.id == "__unwrap_abs__" and len(n.args) == 1:
+                        return n.args[0]
+                    return self.generic_visit(n)
+
+            AbsUnwrapper().visit(func_def)
+            return True
+
+        # Else try wrapping a BinOp once
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.BinOp) and not mutations_made:
+                new_call = ast.Call(func=ast.Name(id="abs", ctx=ast.Load()), args=[copy.deepcopy(node)], keywords=[])
+                # Replace this BinOp in its parent by marking and second pass
+                node.op = ast.Add() if isinstance(node.op, ast.Add) else node.op  # no-op touch to satisfy linter
+                node.__dict__["__wrap_abs__"] = True
+                mutations_made = True
+                break
+        if mutations_made:
+
+            class AbsWrapper(ast.NodeTransformer):
+                def visit_BinOp(self, n):
+                    if getattr(n, "__wrap_abs__", False):
+                        return ast.Call(func=ast.Name(id="abs", ctx=ast.Load()), args=[ast.copy_location(copy.deepcopy(n), n)], keywords=[])
+                    return self.generic_visit(n)
+
+            AbsWrapper().visit(func_def)
+        return mutations_made
+
+    def mutate_append_extend(self, func_def):
+        """Toggle between list.append(x) and list.extend([x]) on one occurrence."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and not mutations_made:
+                if node.func.attr == "append" and len(node.args) == 1:
+                    node.func.attr = "extend"
+                    node.args = [ast.List(elts=[node.args[0]], ctx=ast.Load())]
+                    mutations_made = True
+                elif node.func.attr == "extend" and len(node.args) == 1 and isinstance(node.args[0], ast.List) and node.args[0].elts:
+                    node.func.attr = "append"
+                    node.args = [node.args[0].elts[0]]
+                    mutations_made = True
+        return mutations_made
+
+    def mutate_enumerate_start(self, func_def):
+        """Toggle enumerate start from implicit/0 to 1, or 1 to 0."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "enumerate" and not mutations_made:
+                kw = next((k for k in node.keywords if k.arg == "start"), None)
+                if kw and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, int):
+                    kw.value.value = 0 if kw.value.value == 1 else 1
+                    mutations_made = True
+                else:
+                    node.keywords.append(ast.keyword(arg="start", value=ast.Constant(value=1)))
+                    mutations_made = True
+        return mutations_made
+
+    def mutate_break_to_continue(self, func_def):
+        """Turn one Break into Continue to alter loop flow subtly."""
+
+        class BreakToContinue(ast.NodeTransformer):
+            def __init__(self):
+                self.changed = False
+
+            def visit_Break(self, n):
+                if not self.changed:
+                    self.changed = True
+                    return ast.Continue()
+                return n
+
+        transformer = BreakToContinue()
+        transformer.visit(func_def)
+        return transformer.changed
+
+    def mutate_dict_get_default(self, func_def):
+        """Adjust dict.get default: 0<->1 or add default=1 if missing."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get" and not mutations_made:
+                if len(node.args) == 1:
+                    node.args.append(ast.Constant(value=1))
+                    mutations_made = True
+                elif len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, int):
+                    node.args[1].value = 0 if node.args[1].value == 1 else 1
+                    mutations_made = True
+        return mutations_made
+
+    def mutate_string_lower_upper(self, func_def):
+        """Swap .lower() and .upper() on one call."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and not mutations_made:
+                if node.func.attr == "lower":
+                    node.func.attr = "upper"
+                    mutations_made = True
+                elif node.func.attr == "upper":
+                    node.func.attr = "lower"
+                    mutations_made = True
+        return mutations_made
+
+    def mutate_strip_variant(self, func_def):
+        """Change strip variant: strip<->rstrip (or lstrip if rstrip not found)."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and not mutations_made:
+                if node.func.attr == "strip":
+                    node.func.attr = "rstrip"
+                    mutations_made = True
+                elif node.func.attr == "rstrip":
+                    node.func.attr = "strip"
+                    mutations_made = True
+                elif node.func.attr == "lstrip":
+                    node.func.attr = "strip"
+                    mutations_made = True
+        return mutations_made
+
+    def mutate_join_separator(self, func_def):
+        """Change string join separator between '', ' ', and ','."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "join" and not mutations_made:
+                if isinstance(node.func.value, ast.Constant) and isinstance(node.func.value.value, str):
+                    sep = node.func.value.value
+                    node.func.value.value = " " if sep == "" else ("" if sep == " " else ",")
+                    mutations_made = True
+        return mutations_made
+
+    def mutate_sorted_toggle_key_len(self, func_def):
+        """Toggle sorted key between None and len."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and not mutations_made:
+                is_sorted = (isinstance(node.func, ast.Name) and node.func.id == "sorted") or (isinstance(node.func, ast.Attribute) and node.func.attr == "sort")
+                if is_sorted:
+                    key_kw = next((k for k in node.keywords if k.arg == "key"), None)
+                    if key_kw is None:
+                        node.keywords.append(ast.keyword(arg="key", value=ast.Name(id="len", ctx=ast.Load())))
+                        mutations_made = True
+                    else:
+                        # remove key
+                        node.keywords = [k for k in node.keywords if k.arg != "key"]
+                        mutations_made = True
+        return mutations_made
+
+    def mutate_set_vs_list_cast(self, func_def):
+        """Swap set(x) with list(x) once."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("set", "list") and not mutations_made:
+                node.func.id = "list" if node.func.id == "set" else "set"
+                mutations_made = True
+        return mutations_made
+
+    def mutate_round_to_int(self, func_def):
+        """Change round(x) to int(x) or vice versa if found."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("round", "int") and not mutations_made:
+                node.func.id = "int" if node.func.id == "round" else "round"
+                mutations_made = True
+        return mutations_made
+
+    def mutate_comp_filter_remove(self, func_def):
+        """Remove one filter clause from a list/set/dict comprehension."""
+        mutations_made = False
+        comp_types = (ast.ListComp, ast.SetComp, ast.DictComp)
+        for node in ast.walk(func_def):
+            if isinstance(node, comp_types) and not mutations_made:
+                gens = node.generators
+                for gen in gens:
+                    if gen.ifs:
+                        gen.ifs = gen.ifs[1:]  # drop first filter
+                        mutations_made = True
+                        break
+        return mutations_made
+
+    def mutate_find_vs_index(self, func_def):
+        """Swap str.find and str.index usage in one place."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and not mutations_made:
+                if node.func.attr == "find":
+                    node.func.attr = "index"
+                    mutations_made = True
+                elif node.func.attr == "index":
+                    node.func.attr = "find"
+                    mutations_made = True
+        return mutations_made
+
+    def mutate_any_all_swap(self, func_def):
+        """Swap any(...) with all(...) once."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("any", "all") and not mutations_made:
+                node.func.id = "all" if node.func.id == "any" else "any"
+                mutations_made = True
+        return mutations_made
+
+    def mutate_zip_arg_order(self, func_def):
+        """Reverse the first two positional arguments of a zip() call."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "zip" and len(node.args) >= 2 and not mutations_made:
+                node.args[0], node.args[1] = node.args[1], node.args[0]
+                mutations_made = True
+        return mutations_made
+
+    def mutate_len_range_endpoint(self, func_def):
+        """Modify range(len(x)) to range(len(x)+1) or range(len(x)-1)."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "range" and not mutations_made:
+                if len(node.args) == 1 and isinstance(node.args[0], ast.Call) and isinstance(node.args[0].func, ast.Name) and node.args[0].func.id == "len":
+                    len_call = node.args[0]
+                    if random.choice([True, False]):
+                        node.args[0] = ast.BinOp(left=len_call, op=ast.Add(), right=ast.Constant(value=1))
+                    else:
+                        node.args[0] = ast.BinOp(left=len_call, op=ast.Sub(), right=ast.Constant(value=1))
+                    mutations_made = True
+        return mutations_made
+
+    def mutate_negative_indexing_shift(self, func_def):
+        """Shift negative constant indices by one (e.g., [-1] -> [-2])."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Subscript) and not mutations_made:
+                sl = node.slice
+                if isinstance(sl, ast.UnaryOp) and isinstance(sl.op, ast.USub) and isinstance(sl.operand, ast.Constant) and isinstance(sl.operand.value, int):
+                    sl.operand.value += 1  # -1 -> -2, etc.
+                    mutations_made = True
+                elif isinstance(sl, ast.Slice):
+                    # handle slice like a[-k:]
+                    if sl.lower and isinstance(sl.lower, ast.UnaryOp) and isinstance(sl.lower.op, ast.USub) and isinstance(sl.lower.operand, ast.Constant) and isinstance(sl.lower.operand.value, int):
+                        sl.lower.operand.value += 1
+                        mutations_made = True
+                    elif (
+                        sl.upper and isinstance(sl.upper, ast.UnaryOp) and isinstance(sl.upper.op, ast.USub) and isinstance(sl.upper.operand, ast.Constant) and isinstance(sl.upper.operand.value, int)
+                    ):
+                        sl.upper.operand.value += 1
+                        mutations_made = True
+        return mutations_made
+
+    def mutate_dict_items_variant(self, func_def):
+        """Change dict iteration/view: items<->keys<->values for one attribute call."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("items", "keys", "values") and not mutations_made:
+                if node.func.attr == "items":
+                    node.func.attr = random.choice(["keys", "values"])
+                elif node.func.attr == "keys":
+                    node.func.attr = random.choice(["items", "values"])
+                else:
+                    node.func.attr = random.choice(["items", "keys"])
+                mutations_made = True
+        return mutations_made
+
+    def mutate_none_equality_operator(self, func_def):
+        """Toggle None comparisons between ==/!= and is/is not."""
+        mutations_made = False
+        for node in ast.walk(func_def):
+            if isinstance(node, ast.Compare) and not mutations_made:
+                # Only single comparator to avoid complex rewrites
+                if len(node.comparators) == 1 and isinstance(node.comparators[0], ast.Constant) and node.comparators[0].value is None:
+                    if len(node.ops) == 1:
+                        op = node.ops[0]
+                        if isinstance(op, ast.Eq):
+                            node.ops[0] = ast.Is()
+                            mutations_made = True
+                        elif isinstance(op, ast.NotEq):
+                            node.ops[0] = ast.IsNot()
+                            mutations_made = True
+                        elif isinstance(op, ast.Is):
+                            node.ops[0] = ast.Eq()
+                            mutations_made = True
+                        elif isinstance(op, ast.IsNot):
+                            node.ops[0] = ast.NotEq()
                             mutations_made = True
         return mutations_made

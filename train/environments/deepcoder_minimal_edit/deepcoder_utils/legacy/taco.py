@@ -63,7 +63,6 @@ class TimeoutException(Exception):
 
 
 def timeout_handler(signum, frame):
-    print("alarm went off")
     # return
     raise TimeoutException
 
@@ -382,9 +381,7 @@ def execute_cb_code_sandboxed(
 
         deps_install_result = sandbox_client.execute_command(sandbox_id=sandbox.id, command=deps_install_command)
         if deps_install_result.exit_code != 0:
-            raise Exception(
-                f"Failed to install dependencies: stdout={deps_install_result.stdout}, stderr={deps_install_result.stderr}"
-            )
+            raise Exception(f"Failed to install dependencies: stdout={deps_install_result.stdout}, stderr={deps_install_result.stderr}")
     except SandboxNotRunningError as e:
         print(f"Sandbox not running error: {repr(e)}")
         # Return timeout-like results for all test cases
@@ -419,9 +416,7 @@ def execute_cb_code_sandboxed(
                 content=wrapper_script,
             )
             if write_result.exit_code != 0:
-                raise Exception(
-                    f"Failed to write script to sandbox: stdout={write_result.stdout}, stderr={write_result.stderr}"
-                )
+                raise Exception(f"Failed to write script to sandbox: stdout={write_result.stdout}, stderr={write_result.stderr}")
 
             # Execute script in sandbox
             command = f"bash -c 'ulimit -v 10485760; python {sandbox_script_path}'"
@@ -481,9 +476,7 @@ def execute_cb_code_sandboxed(
                         results.append((False, EXECUTION_RESULTS[0]))  # "false"
 
                     if debug:
-                        print(
-                            f"outputs = {exec_outputs}, test outputs = {outputs}, inputs = {inputs}, {type(inputs)}, {tmp_result}"
-                        )
+                        print(f"outputs = {exec_outputs}, test outputs = {outputs}, inputs = {inputs}, {type(inputs)}, {tmp_result}")
                         debug_infos[index] = {
                             "inputs": inputs,
                             "gt_outputs": outputs,
@@ -515,7 +508,6 @@ def execute_cb_code_sandboxed(
                 results.append((False, EXECUTION_RESULTS[-2]))
             break
 
-    print(f"taco `execute_cb_code_sandboxed` test case results: {results}")
     return results, debug_infos
 
 
@@ -607,15 +599,12 @@ def execute_cb_code(method, inputs_list, outputs_list, timeout, early_stop=True,
             continue
 
         if debug:
-            print(
-                f"outputs = {exec_outputs}, test outputs = {outputs}, inputs = {inputs}, {type(inputs)}, {tmp_result}"
-            )
+            print(f"outputs = {exec_outputs}, test outputs = {outputs}, inputs = {inputs}, {type(inputs)}, {tmp_result}")
             debug_infos[index] = {
                 "inputs": inputs,
                 "gt_outputs": outputs,
                 "exec_outputs": exec_outputs,
             }
-    print(f"taco `execute_cb_code` test case results: {results}")
     return results, debug_infos
 
 
@@ -664,14 +653,10 @@ def execute_std_code(
             content=synthesized_code,
         )
         if write_result.exit_code != 0:
-            raise Exception(
-                f"Failed to write synthesized code to sandbox: stdout={write_result.stdout}, stderr={write_result.stderr}"
-            )
+            raise Exception(f"Failed to write synthesized code to sandbox: stdout={write_result.stdout}, stderr={write_result.stderr}")
         deps_install_result = sandbox_client.execute_command(sandbox_id=sandbox.id, command=deps_install_command)
         if deps_install_result.exit_code != 0:
-            raise Exception(
-                f"Failed to install dependencies: stdout={deps_install_result.stdout}, stderr={deps_install_result.stderr}"
-            )
+            raise Exception(f"Failed to install dependencies: stdout={deps_install_result.stdout}, stderr={deps_install_result.stderr}")
     except SandboxNotRunningError as e:
         print(f"Sandbox not running error: {repr(e)}")
         # Return timeout-like results for all test cases to enable early exit
@@ -767,7 +752,7 @@ def execute_std_code(
         assert exec_code != -3
         exec_results[i] = (
             exec_code == 1,
-            EXECUTION_RESULTS[exec_code] if exec_code > -3 else EXECUTION_RESULTS[exec_code].format(return_code),
+            EXECUTION_RESULTS[exec_code] if exec_code > -3 else EXECUTION_RESULTS[exec_code].format(code=return_code),
         )
         if exec_code >= 0:
             if debug:
@@ -787,13 +772,9 @@ def execute_std_code(
 def print_debug_info(inputs, outputs, exec_outputs):
     nl = "\n"
     if not isinstance(inputs, list):
-        print(
-            f"exec output = {exec_outputs}, test outputs = {outputs}, inputs = {inputs.replace(nl, ' new-line ')}, {type(inputs)}, {exec_outputs == [outputs]}"
-        )
+        print(f"exec output = {exec_outputs}, test outputs = {outputs}, inputs = {inputs.replace(nl, ' new-line ')}, {type(inputs)}, {exec_outputs == [outputs]}")
     else:
-        print(
-            f"exec output = {exec_outputs}, test outputs = {outputs}, inputs = {inputs}, {type(inputs)}, {exec_outputs == [outputs]}"
-        )
+        print(f"exec output = {exec_outputs}, test outputs = {outputs}, inputs = {inputs}, {type(inputs)}, {exec_outputs == [outputs]}")
 
 
 def create_temp_file(content):
@@ -920,10 +901,7 @@ def compare_std_results(exec_outputs, outputs, debug=False):
 
     # if they are all numbers, round so that similar numbers are treated as identical
     try:
-        tmp_result = tmp_result or (
-            set(frozenset(round(float(t), 3) for t in s) for s in exec_outputs)
-            == set(frozenset(round(float(t), 3) for t in s) for s in outputs)
-        )
+        tmp_result = tmp_result or (set(frozenset(round(float(t), 3) for t in s) for s in exec_outputs) == set(frozenset(round(float(t), 3) for t in s) for s in outputs))
     except Exception as e:
         if debug:
             print(f"Failed check6 exception = {e}")

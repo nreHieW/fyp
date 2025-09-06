@@ -15,10 +15,9 @@ import verifiers as vf
 from datasets import load_dataset
 from deepcoder_utils.legacy.deepcoder_genesys import extract_code_from_model
 from deepcoder_utils.local_verify import verify_deepcoder_local
-from partial_edits_utils.code_corruptor import CodeCorruptor
-from partial_edits_utils.prompt_utils import create_user_message, SYSTEM_PROMPT
+from partial_edits_utils.prompt_utils import SYSTEM_PROMPT
 from partial_edits_utils.similarity_utils import get_levenshtein_distance
-from verifiers.types import ChatMessage, Info, Messages, RolloutScores, State
+from verifiers.types import ChatMessage, Info, Messages, RolloutScores, State, ProcessedOutputs
 
 
 class CodeBlockParser(vf.ThinkParser):
@@ -44,6 +43,14 @@ class DeepCoderEnv(vf.SingleTurnEnv):
     async def setup_state(self, state: State, **kwargs) -> State:
         # No sandbox setup; evaluation runs locally
         return state
+
+    def process_env_results_vllm(self, *args, **kwargs) -> ProcessedOutputs:
+        processed_outputs = super().process_env_results_vllm(*args, **kwargs)
+        # for exceptions not caused by generated code (e.g., infra failures), zero out completion mask
+        for i, reward in enumerate(processed_outputs.rewards):
+            if reward is None:
+                processed_outputs.completion_mask[i] = [0] * len(processed_outputs.completion_ids[i])
+        return processed_outputs
 
 
 class DeepCoderRubric(vf.Rubric):
@@ -116,56 +123,6 @@ class DeepCoderRubric(vf.Rubric):
         return RolloutScores(reward=rewards, metrics={"deepcoder_reward_func": rewards})
 
 
-def _get_sample(item):
-    original_problem_description = item["problem"]
-    problem_spec = (
-        original_problem_description.replace("Now solve the problem and return the code.", "").replace("Solve the following coding problem using the programming language python:", "").strip()
-    )
-    canonical_solution = item["solutions"][0]
-    cleaned_canonical_solution = canonical_solution.replace("```python", "").replace("```", "").strip()
-    corrupted_solution, _ = CodeCorruptor().corrupt_function(cleaned_canonical_solution)
-    # Ensure corrupted solution fails the provided tests; otherwise mark as None to drop later
-    try:
-        tests_obj = json.loads(item["tests"]) if isinstance(item["tests"], str) else item["tests"]
-        if isinstance(tests_obj, list):
-            total_tests = len(tests_obj)
-        elif isinstance(tests_obj, dict):
-            if "inputs" in tests_obj:
-                total_tests = len(tests_obj["inputs"])  # type: ignore
-            elif "input_output" in tests_obj:
-                io = json.loads(tests_obj["input_output"])  # type: ignore
-                total_tests = len(io.get("inputs", []))
-            else:
-                total_tests = 5
-        else:
-            total_tests = 5
-
-        # Verify locally; if it passes all tests, discard this example by nulling corrupted_solution
-        verification_info = {"dataset_type": "primeintellect", "ground_truth": item["tests"]}
-        result = verify_deepcoder_local(
-            completion=corrupted_solution if corrupted_solution is not None else "",
-            verification_info=verification_info,
-            timeout_per_test=30,
-            max_tests=total_tests,
-        )
-        if result == 1:
-            corrupted_solution = None
-    except Exception as _e:
-        # On any verification error, mark as invalid to be filtered out
-        corrupted_solution = None
-    return {
-        "question": create_user_message(problem_spec, corrupted_solution),
-        "answer": canonical_solution,
-        "info": {
-            "dataset_type": "primeintellect",
-            "ground_truth": item["tests"],
-            "canonical_solution": canonical_solution,
-            "corrupted_solution": corrupted_solution,
-        },
-        "task": "deepcoder",
-    }
-
-
 def load_environment(
     timeout_per_test: int = 60,
     max_tests: int = 2,
@@ -175,13 +132,24 @@ def load_environment(
 ) -> vf.Environment:
     """Load DeepCoder environment for coding problems with executable verification."""
     random.seed(seed)
-    train_dataset = load_dataset("agentica-org/DeepCoder-Preview-Dataset", "primeintellect", split="train")
+    train_dataset = load_dataset("nreHieW/DeepCoder-Partial-Edits", split="train")
+    # Ensure corrupted examples only
+    train_dataset = train_dataset.filter(lambda x: x["corrupted_answer"] is not None)
     train_dataset = train_dataset.map(
-        _get_sample,
+        lambda x: {
+            "question": x["user_message"],
+            "answer": x["correct_answer"],
+            "info": {
+                "dataset_type": "primeintellect",
+                "ground_truth": x["test_code"],
+                "canonical_solution": x["correct_answer"],
+                "corrupted_solution": x["corrupted_answer"],
+            },
+            "task": "deepcoder",
+        },
         num_proc=ds_num_proc,
     )
-    train_dataset = train_dataset.remove_columns(["problem", "solutions", "tests"])
-    train_dataset = train_dataset.filter(lambda x: x["info"]["corrupted_solution"] is not None).select(range(50))
+    train_dataset = train_dataset.select(range(min(50, train_dataset.num_rows)))
     print(train_dataset)
 
     parser = CodeBlockParser()

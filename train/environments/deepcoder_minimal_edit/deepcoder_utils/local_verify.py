@@ -94,9 +94,7 @@ def _execute_std_code_local(
         assert exec_code != -3 or return_code != 0
         exec_results[i] = (
             exec_code == 1,
-            EXECUTION_RESULTS[exec_code]
-            if exec_code > -3
-            else EXECUTION_RESULTS[exec_code].format(return_code),
+            EXECUTION_RESULTS[exec_code] if exec_code > -3 else EXECUTION_RESULTS[exec_code].format(code=return_code),
         )
 
         if early_stop and exec_code <= 0:
@@ -142,9 +140,7 @@ def run_test_local(in_outs, test=None, debug=False, timeout=90):
 
     if which_type == CODE_TYPE.call_based:
         synthesized_code = synthesize_cb_code(test, debug)
-        method_func = compile_and_get_func(
-            synthesized_code, which_type, method_name, timeout=timeout, debug=debug
-        )
+        method_func = compile_and_get_func(synthesized_code, which_type, method_name, timeout=timeout, debug=debug)
         if not method_func:
             results.append(-2)
             return results
@@ -158,9 +154,7 @@ def run_test_local(in_outs, test=None, debug=False, timeout=90):
         )
     else:
         synthesized_code, exec_code = synthesize_std_code(test, debug)
-        method_func = compile_and_get_func(
-            synthesized_code, which_type, method_name, timeout=timeout, debug=debug
-        )
+        method_func = compile_and_get_func(synthesized_code, which_type, method_name, timeout=timeout, debug=debug)
         if not method_func:
             results.append(-2)
             return results
@@ -202,33 +196,7 @@ def run_test_local(in_outs, test=None, debug=False, timeout=90):
         else:
             results.append(-3)
 
-    print(f"local_verify `run_test_local` test case results: {results}")
     return results
-
-
-def _select_max_tests_if_needed(tests: Union[List[Dict[str, str]], Dict[str, List[str]]], max_tests: int):
-    if isinstance(tests, list):
-        total_tests = len(tests)
-        if total_tests > max_tests:
-            selected_indices = sorted(
-                range(total_tests), key=lambda i: len(tests[i]["input"]), reverse=True
-            )[:max_tests]
-            tests = [tests[i] for i in selected_indices]
-    elif isinstance(tests, dict):
-        if "inputs" in tests:
-            total_tests = len(tests["inputs"])
-            if total_tests > max_tests:
-                selected_indices = sorted(
-                    range(total_tests), key=lambda i: len(tests["inputs"][i]), reverse=True
-                )[:max_tests]
-                selected_tests = {
-                    "inputs": [tests["inputs"][i] for i in selected_indices],
-                    "outputs": [tests["outputs"][i] for i in selected_indices],
-                }
-                if "fn_name" in tests:
-                    selected_tests["fn_name"] = tests["fn_name"]
-                tests = selected_tests
-    return tests
 
 
 def check_correctness_local(
@@ -238,12 +206,28 @@ def check_correctness_local(
     timeout_per_test: int = 60,
     max_tests: int = 5,
 ) -> bool:
-    tests = _select_max_tests_if_needed(tests, max_tests)
+    if isinstance(tests, list):
+        total_tests = len(tests)
+        if total_tests > max_tests:
+            selected_indices = sorted(range(total_tests), key=lambda i: len(tests[i]["input"]), reverse=True)[:max_tests]
+            tests = [tests[i] for i in selected_indices]
+    elif isinstance(tests, dict):
+        if "inputs" in tests:
+            total_tests = len(tests["inputs"])
+            if total_tests > max_tests:
+                selected_indices = sorted(range(total_tests), key=lambda i: len(tests["inputs"][i]), reverse=True)[:max_tests]
+                selected_tests = {
+                    "inputs": [tests["inputs"][i] for i in selected_indices],
+                    "outputs": [tests["outputs"][i] for i in selected_indices],
+                }
+                if "fn_name" in tests:
+                    selected_tests["fn_name"] = tests["fn_name"]
+                tests = selected_tests
+
     try:
         result = test_fn(
             tests,
             test=code,
-            debug=False,
             timeout=timeout_per_test,
         )
         if not result:
@@ -262,7 +246,6 @@ def primeintellect_check_correctness_local(
     code,
     timeout_per_test=60,
     max_tests: int = 5,
-    debug: bool = False,
 ):
     inputs = [t["input"] for t in tests]
     outputs = [t["output"] for t in tests]
@@ -289,7 +272,6 @@ def verify_deepcoder_local(
     verification_info: dict,
     timeout_per_test: int = 60,
     max_tests: int = 5,
-    debug: bool = False,
 ) -> int:
     model_code = completion
     tests = json.loads(verification_info["ground_truth"])
@@ -304,11 +286,16 @@ def verify_deepcoder_local(
             code=model_code,
             timeout_per_test=timeout_per_test,
             max_tests=max_tests,
-            debug=debug,
+        )
+    elif dataset_name == "taco":
+        is_correct = check_correctness_local(
+            tests=tests,
+            code=model_code,
+            test_fn=run_test_local,
+            timeout_per_test=timeout_per_test,
+            max_tests=max_tests,
         )
     else:
         raise ValueError(f"Test type {dataset_name} is not supported")
 
     return 1 if is_correct else 0
-
-
