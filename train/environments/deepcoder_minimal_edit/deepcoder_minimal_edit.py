@@ -15,7 +15,7 @@ import verifiers as vf
 from datasets import load_dataset
 from deepcoder_utils.legacy.deepcoder_genesys import extract_code_from_model
 from deepcoder_utils.local_verify import verify_deepcoder_local
-from partial_edits_utils.prompt_utils import SYSTEM_PROMPT
+from partial_edits_utils.prompt_utils import SYSTEM_PROMPT, create_user_message
 from partial_edits_utils.similarity_utils import get_levenshtein_distance
 from verifiers.types import ChatMessage, Info, Messages, RolloutScores, State, ProcessedOutputs
 
@@ -137,7 +137,7 @@ def load_environment(
     train_dataset = train_dataset.filter(lambda x: x["corrupted_answer"] is not None)
     train_dataset = train_dataset.map(
         lambda x: {
-            "question": x["user_message"],
+            "question": create_user_message(x["problem_spec"], x["corrupted_answer"]),
             "answer": x["correct_answer"],
             "info": {
                 "dataset_type": "primeintellect",

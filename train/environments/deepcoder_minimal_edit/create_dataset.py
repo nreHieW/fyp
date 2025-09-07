@@ -6,10 +6,9 @@ from datasets import load_dataset, concatenate_datasets
 
 from deepcoder_utils.local_verify import verify_deepcoder_local
 from partial_edits_utils.code_corruptor import CodeCorruptor
-from partial_edits_utils.prompt_utils import create_user_message
 
 
-def _process_item(item: dict[str, Any], dataset_type: str) -> dict[str, Any]:
+def _process_item(item: dict[str, Any], dataset_type: str, use_ood: str) -> dict[str, Any]:
     """Transform a single DeepCoder sample into our partial-edit dataset schema.
 
     - Corrupt the canonical solution
@@ -24,7 +23,10 @@ def _process_item(item: dict[str, Any], dataset_type: str) -> dict[str, Any]:
     canonical_solution = item["solutions"][0]
     cleaned_canonical_solution = canonical_solution.replace("```python", "").replace("```", "").strip()
 
-    corrupted_solution, _ = CodeCorruptor().corrupt_function(cleaned_canonical_solution, max_mutations=20, use_ood=True)
+    corrupted_solution, applied_mutations = CodeCorruptor().corrupt_function(cleaned_canonical_solution, max_mutations=20, use_ood=use_ood)
+
+    if isinstance(applied_mutations, str):
+        applied_mutations = [applied_mutations]
 
     # Ensure corrupted solution fails the provided tests; otherwise mark as None to drop later
     try:
@@ -58,27 +60,34 @@ def _process_item(item: dict[str, Any], dataset_type: str) -> dict[str, Any]:
     return {
         # "user_message": create_user_message(problem_spec, corrupted_solution),
         "problem_spec": problem_spec,
-        "correct_answer": canonical_solution,
-        "corrupted_answer": corrupted_solution,
+        "correct_answer": _post_process_code(canonical_solution),
+        "corrupted_answer": _post_process_code(corrupted_solution),
         "tests": item["tests"],
+        "applied_mutations": applied_mutations,
     }
+
+
+def _post_process_code(code: str):
+    return code.replace("\t", "    ")
 
 
 def main():
     seed = 42
     random.seed(seed)
+    for use_ood in ["non_ood", "ood", "both"]:
+        ds_list = []
+        for dataset_type in ["primeintellect", "taco"]:
+            ds = load_dataset("agentica-org/DeepCoder-Preview-Dataset", dataset_type, split="train")
+            ds = ds.map(_process_item, num_proc=8, fn_kwargs={"dataset_type": dataset_type, "use_ood": use_ood}).select_columns(
+                ["problem_spec", "correct_answer", "corrupted_answer", "tests", "applied_mutations"]
+            )
+            ds = ds.filter(lambda x: x["corrupted_answer"] is not None)
+            ds_list.append(ds)
 
-    ds_list = []
-    for dataset_type in ["primeintellect", "taco"]:
-        ds = load_dataset("agentica-org/DeepCoder-Preview-Dataset", dataset_type, split="train")
-        ds = ds.map(_process_item, num_proc=8, fn_kwargs={"dataset_type": dataset_type}).select_columns(["problem_spec", "correct_answer", "corrupted_answer", "tests"])
-        ds = ds.filter(lambda x: x["corrupted_answer"] is not None)
-        ds_list.append(ds)
-
-    ds_final = concatenate_datasets(ds_list)
-    ds_dict = ds_final.train_test_split(test_size=0.1, seed=seed)
-    print(ds_dict)
-    ds_dict.push_to_hub("nreHieW/DeepCoder-Partial-Edits")
+        ds_final = concatenate_datasets(ds_list)
+        ds_dict = ds_final.train_test_split(test_size=0.1, seed=seed)
+        print(ds_dict)
+        ds_dict.push_to_hub(f"nreHieW/DeepCoder-Partial-Edits{'-' + use_ood if use_ood != 'non_ood' else ''}")
 
 
 if __name__ == "__main__":

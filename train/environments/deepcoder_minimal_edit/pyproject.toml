@@ -4,7 +4,10 @@ description = "Your environment description here"
 tags = ["placeholder-tag", "train", "eval"]
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "datasets>=4.0.0",
+    "prime>=0.3.26",
+]
 
 
 [build-system]

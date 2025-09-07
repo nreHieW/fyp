@@ -48,11 +48,17 @@ class CodeCorruptor:
             self.mutate_none_equality_operator,
         ]
 
-    def corrupt_function(self, code, max_mutations: int = 10, use_ood: bool = False):
+    def corrupt_function(
+        self,
+        code,
+        use_ood: str,
+        max_mutations: int = 10,
+    ):
         """Apply up to `max_mutations` subtle mutations to the function code.
 
         Returns (mutated_code: str | None, mutation_list: list[str] | str)
         """
+        assert use_ood in ["both", "ood", "non_ood"]
         try:
             # Parse the code
             tree = ast.parse(code)
@@ -71,8 +77,12 @@ class CodeCorruptor:
 
             # Shuffle mutation order once
             mutation_order = self.mutation_types.copy()
-            if use_ood:
+            if use_ood == "both":
                 mutation_order.extend(self.ood_mutations)
+            elif use_ood == "ood":
+                mutation_order = self.ood_mutations.copy()
+            else:
+                mutation_order = self.mutation_types.copy()
             random.shuffle(mutation_order)
 
             applied_mutations = []
