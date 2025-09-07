@@ -1,0 +1,25 @@
+## to run on H100
+batch_size = 512
+micro_batch_size = 2
+rollouts_per_example = 16
+seq_len = 2048
+mask_truncated_completions = false
+
+[model]
+name = "Qwen/Qwen3-4B-Instruct-2507"
+
+[sampling]
+max_tokens = 4096
+
+[monitor.wandb]
+
+[environment]
+id = "deepcoder-partial-edit"
+
+[monitor.wandb.log_extras]
+interval = 10
+
+[eval]
+
+[ckpt]
+interval = 200 

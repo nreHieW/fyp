@@ -14,7 +14,7 @@ cd ../
 rm -rf LLaMA-Factory/data/
 
 python prepare_dataset.py 
-mv config.yaml LLaMA-Factory/
+mv ../configs/config.yaml LLaMA-Factory/
 
 pip install wandb
 

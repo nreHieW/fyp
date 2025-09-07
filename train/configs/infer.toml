@@ -1,0 +1,6 @@
+[model]
+name = "Qwen/Qwen3-4B-Instruct-2507"
+
+[parallel]
+dp = 2
+tp = 1

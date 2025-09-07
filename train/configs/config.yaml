@@ -32,7 +32,7 @@ save_only_model: false
 report_to: wandb  # choices: [none, wandb, tensorboard, swanlab, mlflow]
 
 ### train
-per_device_train_batch_size: 4 # can be more [4xA100]
+per_device_train_batch_size: 2
 gradient_accumulation_steps: 4
 learning_rate: 1.0e-5
 num_train_epochs: 2.0

@@ -1,0 +1,12 @@
+[monitor.wandb]
+
+[model]
+name = "Qwen/Qwen3-4B-Instruct-2507"
+
+[model.ac]
+
+[optim]
+lr = 1e-6
+
+[ckpt]
+interval = 200 
