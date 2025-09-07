@@ -1,13 +1,16 @@
 ### model
-model_name_or_path: Qwen/Qwen3-0.6B
+# model_name_or_path: Qwen/Qwen3-0.6B
+model_name_or_path: Qwen/Qwen3-4B-Instruct-2507
 trust_remote_code: true
+
+export_hub_model_id: nreHieW/partial-edits-sft-qwen3-4b-instruct-2507
 
 ### method
 stage: sft
 do_train: true
 finetuning_type: full
 # TODO:Path
-deepspeed: llamaexamples/deepspeed/ds_z2_config.json  # choices: [ds_z0_config.json, ds_z2_config.json, ds_z3_config.json]
+deepspeed: examples/deepspeed/ds_z2_config.json  # choices: [ds_z0_config.json, ds_z2_config.json, ds_z3_config.json]
 
 ### dataset
 dataset: deepcoder_partial_edits_train
@@ -19,19 +22,20 @@ preprocessing_num_workers: 16
 dataloader_num_workers: 4
 
 ### output
-output_dir: saves/qwen3-0.6b/full/sft
+# output_dir: saves/qwen3-0.6b/full/sft
+output_dir: saves/qwen3-4b-instruct-2507/full/sft
 logging_steps: 10
-save_steps: 500
+save_steps: 100
 plot_loss: true
 overwrite_output_dir: true
 save_only_model: false
-report_to: none  # choices: [none, wandb, tensorboard, swanlab, mlflow]
+report_to: wandb  # choices: [none, wandb, tensorboard, swanlab, mlflow]
 
 ### train
-per_device_train_batch_size: 2
+per_device_train_batch_size: 4 # can be more [4xA100]
 gradient_accumulation_steps: 4
 learning_rate: 1.0e-5
-num_train_epochs: 3.0
+num_train_epochs: 2.0
 lr_scheduler_type: cosine
 warmup_ratio: 0.1
 bf16: true
@@ -43,4 +47,4 @@ eval_dataset: deepcoder_partial_edits_test
 # val_size: 0.1
 per_device_eval_batch_size: 1
 eval_strategy: steps
-eval_steps: 500
+eval_steps: 100
