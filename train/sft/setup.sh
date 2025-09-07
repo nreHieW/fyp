@@ -1,14 +1,15 @@
 sudo apt-get update
+curl -LsSf https://astral.sh/uv/install.sh | sh
 python -m pip install --upgrade pip wheel setuptools
 
 git clone --depth 1 https://github.com/hiyouga/LLaMA-Factory.git
 cd LLaMA-Factory
-pip install -e ".[torch,metrics]" --no-build-isolation
-pip install deepspeed==0.14.4
-pip install --no-build-isolation flash-attn==2.7.3
-pip install datasets 
-pip install vllm
-pip install ray
+uv pip install -e ".[torch,metrics]" --no-build-isolation
+uv pip install deepspeed==0.14.4
+uv pip install --no-build-isolation flash-attn==2.7.3
+uv pip install datasets 
+uv pip install vllm
+uv pip install ray
 
 cd ../
 rm -rf LLaMA-Factory/data/
@@ -16,12 +17,12 @@ rm -rf LLaMA-Factory/data/
 python prepare_dataset.py 
 mv ../configs/config.yaml LLaMA-Factory/
 
-pip install wandb
+uv pip install wandb
 
-wandb login
+uv run wandb login
 export WANDB_PROJECT="partial-edits"
 
-huggingface-cli login
+uv runhuggingface-cli login
 
 # cd LLaMA-Factory
-# llamafactory-cli train config.yaml
+# uv run llamafactory-cli train config.yaml
