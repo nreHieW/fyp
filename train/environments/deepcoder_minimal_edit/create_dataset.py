@@ -67,8 +67,10 @@ def _process_item(item: dict[str, Any], dataset_type: str, use_ood: str) -> dict
     }
 
 
-def _post_process_code(code: str):
-    return code.replace("\t", "    ")
+def _post_process_code(code: str | None):
+    if code is None:
+        return None
+    return code.replace("\t", "    ").replace("    ", "  ")
 
 
 def main():

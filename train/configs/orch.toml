@@ -1,8 +1,8 @@
 ## to run on H100
-batch_size = 512
+batch_size = 128
 micro_batch_size = 2
 rollouts_per_example = 16
-seq_len = 2048
+seq_len = 4096
 mask_truncated_completions = false
 
 [model]
@@ -14,7 +14,7 @@ max_tokens = 4096
 [monitor.wandb]
 
 [environment]
-id = "deepcoder-partial-edit"
+id = "deepcoder-minimal-edit"
 
 [monitor.wandb.log_extras]
 interval = 10

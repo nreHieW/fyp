@@ -3,7 +3,6 @@
 model_name_or_path: Qwen/Qwen3-4B-Instruct-2507
 trust_remote_code: true
 
-export_hub_model_id: nreHieW/partial-edits-sft-qwen3-4b-instruct-2507
 
 ### method
 stage: sft
@@ -13,7 +12,7 @@ finetuning_type: full
 deepspeed: examples/deepspeed/ds_z2_config.json  # choices: [ds_z0_config.json, ds_z2_config.json, ds_z3_config.json]
 
 ### dataset
-dataset: deepcoder_partial_edits_train
+dataset: 
 template: qwen
 cutoff_len: 4096
 # max_samples: 2000
@@ -23,9 +22,9 @@ dataloader_num_workers: 4
 
 ### output
 # output_dir: saves/qwen3-0.6b/full/sft
-output_dir: saves/qwen3-4b-instruct-2507/full/sft
+output_dir: saves/qwen3-4b-instruct-2507
 logging_steps: 10
-save_steps: 100
+save_steps: 150
 plot_loss: true
 overwrite_output_dir: true
 save_only_model: false

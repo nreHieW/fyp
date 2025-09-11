@@ -137,7 +137,7 @@ def load_environment(
     train_dataset = train_dataset.filter(lambda x: x["corrupted_answer"] is not None)
     train_dataset = train_dataset.map(
         lambda x: {
-            "question": create_user_message(x["problem_spec"], x["corrupted_answer"]),
+            "question": create_user_message(x["problem"], x["corrupted_answer"]),
             "answer": x["correct_answer"],
             "info": {
                 "dataset_type": "primeintellect",
