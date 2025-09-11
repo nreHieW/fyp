@@ -12,7 +12,8 @@ finetuning_type: full
 deepspeed: examples/deepspeed/ds_z2_config.json  # choices: [ds_z0_config.json, ds_z2_config.json, ds_z3_config.json]
 
 ### dataset
-dataset: 
+dataset: deepcoder_partial_edits_non_ood_train
+eval_dataset: deepcoder_partial_edits_non_ood_test
 template: qwen
 cutoff_len: 4096
 # max_samples: 2000
@@ -42,7 +43,6 @@ ddp_timeout: 180000000
 resume_from_checkpoint: null
 
 ## eval
-eval_dataset: deepcoder_partial_edits_test
 # val_size: 0.1
 per_device_eval_batch_size: 1
 eval_strategy: steps
