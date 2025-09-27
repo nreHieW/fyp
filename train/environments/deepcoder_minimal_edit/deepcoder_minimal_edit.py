@@ -128,16 +128,18 @@ def load_environment(
     max_tests: int = 2,
     ds_num_proc: int = max(1, os.cpu_count() // 2),
     seed: int = 42,
+    env_type: str = "both",
     **kwargs,
 ) -> vf.Environment:
     """Load DeepCoder environment for coding problems with executable verification."""
+    assert env_type in ["non_ood", "ood", "both"]
     random.seed(seed)
-    train_dataset = load_dataset("nreHieW/DeepCoder-Partial-Edits", split="train")
+    train_dataset = load_dataset("nreHieW/DeepCoder-Partial-Edits" + ("-" + env_type if env_type in ["both", "ood"] else ""), split="train")
     # Ensure corrupted examples only
-    train_dataset = train_dataset.filter(lambda x: x["corrupted_answer"] is not None)
+    train_dataset = train_dataset.filter(lambda x: x["corrupted_answer"] is not None and len(x["corrupted_answer"]) < 200000)
     train_dataset = train_dataset.map(
         lambda x: {
-            "question": create_user_message(x["problem"], x["corrupted_answer"]),
+            "question": create_user_message(x["problem_spec"], x["corrupted_answer"]),
             "answer": x["correct_answer"],
             "info": {
                 "dataset_type": "primeintellect",
@@ -150,7 +152,6 @@ def load_environment(
         num_proc=ds_num_proc,
     )
     train_dataset = train_dataset.select(range(min(50, train_dataset.num_rows)))
-    print(train_dataset)
 
     parser = CodeBlockParser()
 

@@ -38,8 +38,7 @@ Document any supported environment arguments and their meaning. Example:
 
 | Arg | Type | Default | Description |
 | --- | ---- | ------- | ----------- |
-| `foo` | str | `"bar"` | What this controls |
-| `max_examples` | int | `-1` | Limit on dataset size (use -1 for all) |
+| `env_type` | str | `"both"` | Type of environment to use: `"non_ood"`, `"ood"`, `"both"` |
 
 ### Metrics
 Summarize key metrics your rubric emits and how they’re interpreted.
@@ -48,6 +47,7 @@ Summarize key metrics your rubric emits and how they’re interpreted.
 | ------ | ------- |
 | `reward` | Main scalar reward (weighted sum of criteria) |
 | `accuracy` | Exact match on target answer |
+
 
 ### Mutations
 - mutate_comparison_operators: Swap comparison operators (e.g., <↔<=, ==↔!=, >↔>=) in one compare.

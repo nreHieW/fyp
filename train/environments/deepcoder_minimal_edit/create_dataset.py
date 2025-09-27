@@ -60,17 +60,11 @@ def _process_item(item: dict[str, Any], dataset_type: str, use_ood: str) -> dict
     return {
         # "user_message": create_user_message(problem_spec, corrupted_solution),
         "problem_spec": problem_spec,
-        "correct_answer": _post_process_code(canonical_solution),
-        "corrupted_answer": _post_process_code(corrupted_solution),
+        "correct_answer": canonical_solution,
+        "corrupted_answer": corrupted_solution,
         "tests": item["tests"],
         "applied_mutations": applied_mutations,
     }
-
-
-def _post_process_code(code: str | None):
-    if code is None:
-        return None
-    return code.replace("\t", "    ").replace("    ", "  ")
 
 
 def main():

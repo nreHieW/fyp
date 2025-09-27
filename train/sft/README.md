@@ -27,12 +27,12 @@ cd prime-rl
 prime login
 uv sync --no-build-isolation-package flash-attn
 uv sync
-vf-install deepcoder-minimal-edit -p fyp/train/environments/deepcoder_minimal_edit
+vf-install deepcoder-minimal-edit -p fyp/train/environments
 ```
 
 To run the RL training, run the following command. Adjust the config files and the number of GPUs as needed. Follow the instructions in the [prime-rl](https://github.com/PrimeIntellect-ai/prime-rl) repository for more details.
 ```bash
-uv run rl --trainer @ ../fyp/train/configs/train.toml --orchestrator @ ../fyp/train/configs/orch.toml --inference @ ../fyp/train/configs/infer.toml --trainer_gpus 2 --inference_gpus 2
+uv run rl --trainer @ ../fyp/train/configs/train.toml --orchestrator @ ../fyp/train/configs/orch.toml --inference @ ../fyp/train/configs/infer.toml --inference_gpu_ids 0,1,2 --trainer_gpu_ids 3
 ```
 
 ## Evaluation
@@ -65,3 +65,5 @@ uv run python -m lcb_runner.runner.main --model nreHieW/partial-edits-sft-qwen3-
 
 #### TODO 
 - handle prompt length for prime rl 
+
+
