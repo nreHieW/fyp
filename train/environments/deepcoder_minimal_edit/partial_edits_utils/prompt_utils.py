@@ -9,7 +9,12 @@ def create_user_message(
     problem_statement,
     corrupted_solution,
 ):
-    base_message = (
-        "I am trying to implement a function with the following specifications:\n" f"{problem_statement}.\n\n" "The function I have written so far is:\n" "```python" f"{corrupted_solution} ```\n\n"
-    )
+    base_message = f"""I am trying to implement a function with the following specifications:
+{problem_statement}.
+
+The function I have written so far is:
+```python
+{corrupted_solution}
+```
+"""
     return base_message + "Wrap your response in ```python and ```"

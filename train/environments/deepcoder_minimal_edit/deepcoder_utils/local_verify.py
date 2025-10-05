@@ -230,6 +230,7 @@ def check_correctness_local(
             test=code,
             timeout=timeout_per_test,
         )
+        print(result)
         if not result:
             return False
         if isinstance(result, List):
@@ -274,7 +275,7 @@ def verify_deepcoder_local(
     max_tests: int = 5,
 ) -> int:
     model_code = completion
-    tests = json.loads(verification_info["ground_truth"])
+    tests = json.loads(verification_info["tests"])
     dataset_name = verification_info["dataset_type"]
 
     if tests is None:

@@ -6,9 +6,10 @@
 #   year={2025}
 
 import asyncio
-import json
+import datetime
 import os
 import random
+import json
 from typing import Callable, List
 
 import verifiers as vf
@@ -17,7 +18,10 @@ from deepcoder_utils.legacy.deepcoder_genesys import extract_code_from_model
 from deepcoder_utils.local_verify import verify_deepcoder_local
 from partial_edits_utils.prompt_utils import SYSTEM_PROMPT, create_user_message
 from partial_edits_utils.similarity_utils import get_levenshtein_distance
-from verifiers.types import ChatMessage, Info, Messages, RolloutScores, State, ProcessedOutputs
+from verifiers.types import ChatMessage, Info, Messages, RolloutScores, State, ProcessedOutputs, RolloutScore
+
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 
 
 class CodeBlockParser(vf.ThinkParser):
@@ -63,44 +67,51 @@ class DeepCoderRubric(vf.Rubric):
     - `primeintellect`
     """
 
-    def __init__(self, parser: CodeBlockParser, timeout_per_test: int = 60, max_tests: int = 2, **kwargs):
+    def __init__(self, parser: CodeBlockParser, timeout_per_test: int = 20, max_tests: int = 2, levenshtein_weight: float = 0.2, **kwargs):
         super().__init__(**kwargs)
         self.parser = parser
         self.timeout_per_test = timeout_per_test
         self.max_tests = max_tests
+        self.levenshtein_weight = levenshtein_weight
 
     async def deepcoder_reward_func(
         self,
         completion: str | List[ChatMessage],
         info: dict,
         **kwargs,
-    ) -> float:
+    ) -> tuple[float, float]:
         """Execute code against test cases using deepcoder verification system."""
-        try:
-            parsed_completion = self.parser.parse(completion[0]["content"])
-            # Run local verification in executor to avoid blocking event loop
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: verify_deepcoder_local(
-                    completion=parsed_completion,
-                    verification_info=info,
-                    timeout_per_test=self.timeout_per_test,
-                    max_tests=self.max_tests,
-                ),
+        # try:
+        parsed_completion = self.parser.parse(completion[0]["content"])
+        # TODO: Docs
+        loop = asyncio.get_event_loop()
+        with ProcessPoolExecutor(max_workers=1) as pool:
+            verify_partial = partial(
+                verify_deepcoder_local,
+                completion=parsed_completion,
+                verification_info=info,
+                timeout_per_test=self.timeout_per_test,
+                max_tests=self.max_tests,
             )
-            if result == 0:
-                return 0.0  # if wrong result always 0 (prevent hacking of just not editing)
-            elif result == 1:
-                normalized_levenshtein_distance = get_levenshtein_distance(info["canonical_solution"], parsed_completion, normalize=True)
-                weight = 0.5
-                normalized_levenshtein_distance *= weight
-                return 1.0 - normalized_levenshtein_distance  # lower levenshtein distance is better
-            else:
-                raise ValueError(f"Invalid result: {result}")
-        except Exception as e:
-            print(f"Error in deepcoder verification: {repr(e)}")
-            return 0.0
+            result = await asyncio.wait_for(
+                loop.run_in_executor(pool, verify_partial),
+                timeout=self.timeout_per_test * self.max_tests,
+            )
+
+        if result == 0:
+            return 0.0, 0.0
+        elif result == 1:
+            # Run Levenshtein distance calculation in executor to avoid blocking event loop
+            normalized_levenshtein_distance = await loop.run_in_executor(None, lambda: get_levenshtein_distance(info["canonical_solution"], parsed_completion, normalize=True))
+            return result, 1.0 - normalized_levenshtein_distance
+        else:
+            raise ValueError(f"Invalid result: {result}")
+
+        # except Exception as e:
+        #     print(f"Error in deepcoder verification: {repr(e)}")
+        #     print(f"Completion: {completion}")
+        #     print(f"Info: {info["canonical_solution"]}")
+        #     return 0.0, 0.0
 
     async def score_rollouts(
         self,
@@ -114,13 +125,43 @@ class DeepCoderRubric(vf.Rubric):
     ) -> RolloutScores:
         async def process_rollout(completion, info, state):
             # Run a single rollout locally
-            return await self.deepcoder_reward_func(completion=completion, info=info, **kwargs)
+            execution_reward, levenshtein_reward = await self.deepcoder_reward_func(completion=completion, info=info, **kwargs)
+            return execution_reward, levenshtein_reward
 
         tasks = []
         for completion, info, state in zip(completions, infos, states):
             tasks.append(asyncio.create_task(process_rollout(completion, info, state)))
         rewards = await asyncio.gather(*tasks)
-        return RolloutScores(reward=rewards, metrics={"deepcoder_reward_func": rewards})
+        execution_rewards = [reward[0] for reward in rewards]
+        levenshtein_rewards = [reward[1] for reward in rewards]
+        rewards = [execution_reward + levenshtein_reward * self.levenshtein_weight for execution_reward, levenshtein_reward in rewards]
+        return RolloutScores(reward=rewards, metrics={"execution_reward": execution_rewards, "levenshtein_reward": levenshtein_rewards})
+
+    async def score_rollout(
+        self,
+        completion: str | List[ChatMessage],
+        info: dict,
+        **kwargs,
+    ) -> RolloutScore:
+        print(f"Scoring rollout at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} + {completion}")
+        execution_reward, levenshtein_reward = await self.deepcoder_reward_func(completion=completion, info=info, **kwargs)
+        score = execution_reward + levenshtein_reward * self.levenshtein_weight
+        return RolloutScore(reward=score, metrics={"execution_reward": execution_reward, "levenshtein_reward": levenshtein_reward})
+
+
+def _process_test(test: str) -> dict:
+    tests = json.loads(test)
+    if isinstance(tests, dict):
+        tests = [tests]
+
+    for test in tests:
+        if "inputs" in test:
+            test["input"] = test.pop("inputs")
+
+        if "outputs" in test:
+            test["output"] = test.pop("outputs")
+
+    return json.dumps(tests)
 
 
 def load_environment(
@@ -129,6 +170,7 @@ def load_environment(
     ds_num_proc: int = max(1, os.cpu_count() // 2),
     seed: int = 42,
     env_type: str = "both",
+    levenshtein_weight: float = 0.2,
     **kwargs,
 ) -> vf.Environment:
     """Load DeepCoder environment for coding problems with executable verification."""
@@ -136,14 +178,14 @@ def load_environment(
     random.seed(seed)
     train_dataset = load_dataset("nreHieW/DeepCoder-Partial-Edits" + ("-" + env_type if env_type in ["both", "ood"] else ""), split="train")
     # Ensure corrupted examples only
-    train_dataset = train_dataset.filter(lambda x: x["corrupted_answer"] is not None and len(x["corrupted_answer"]) < 200000)
+    train_dataset = train_dataset.filter(lambda x: x["corrupted_answer"] is not None and len(x["corrupted_answer"]) < 5000)
     train_dataset = train_dataset.map(
         lambda x: {
             "question": create_user_message(x["problem_spec"], x["corrupted_answer"]),
             "answer": x["correct_answer"],
             "info": {
                 "dataset_type": "primeintellect",
-                "ground_truth": x["test_code"],
+                "tests": _process_test(x["tests"]),
                 "canonical_solution": x["correct_answer"],
                 "corrupted_solution": x["corrupted_answer"],
             },
@@ -151,11 +193,10 @@ def load_environment(
         },
         num_proc=ds_num_proc,
     )
-    train_dataset = train_dataset.select(range(min(50, train_dataset.num_rows)))
 
     parser = CodeBlockParser()
 
-    rubric = DeepCoderRubric(parser=parser, timeout_per_test=timeout_per_test, max_tests=max_tests)
+    rubric = DeepCoderRubric(parser=parser, timeout_per_test=timeout_per_test, max_tests=max_tests, levenshtein_weight=levenshtein_weight)
 
     vf_env = DeepCoderEnv(
         dataset=train_dataset,
