@@ -5,6 +5,7 @@ import io
 from nltk.translate.chrf_score import corpus_chrf
 from codebleu import calc_codebleu
 from functools import wraps
+from typing import Optional, Tuple
 
 
 def standardize_code_formatting(code: str) -> str:
@@ -141,3 +142,123 @@ def calculate_corpus_codebleu_score(references: list, predictions: list, lang="p
 
     result = calc_codebleu(references, predictions, lang=lang, weights=weights, tokenizer=None)
     return result.get("codebleu", 0.0)
+
+
+def compute_python_complexities(code: Optional[str]) -> Tuple[Optional[int], Optional[int]]:
+    if not code:
+        return None, None
+
+    try:
+        tree = ast.parse(standardize_code_formatting(code))
+    except Exception:
+        try:
+            tree = ast.parse(code)
+        except Exception:
+            return None, None
+
+    class CombinedVisitor(ast.NodeVisitor):
+        def __init__(self):
+            self.cc = 1
+            self.cog = 0
+            self.nesting = 0
+
+        def _add_cog(self, base: int = 1):
+            self.cog += base + self.nesting
+
+        def _visit_block(self, nodes, inc_nesting: bool = True):
+            if not nodes:
+                return
+            if inc_nesting:
+                self.nesting += 1
+            for child in nodes:
+                self.visit(child)
+            if inc_nesting:
+                self.nesting -= 1
+
+        def visit_If(self, n):
+            self.cc += 1
+            self._add_cog(1)
+            self._visit_block(n.body, inc_nesting=True)
+            if len(n.orelse) == 1 and isinstance(n.orelse[0], ast.If):
+                self.visit(n.orelse[0])
+            else:
+                self._visit_block(n.orelse, inc_nesting=True)
+
+        def visit_For(self, n):
+            self.cc += 1
+            self._add_cog(1)
+            self._visit_block(n.body, inc_nesting=True)
+            self._visit_block(n.orelse, inc_nesting=True)
+
+        def visit_AsyncFor(self, n):
+            self.cc += 1
+            self._add_cog(1)
+            self._visit_block(n.body, inc_nesting=True)
+            self._visit_block(n.orelse, inc_nesting=True)
+
+        def visit_While(self, n):
+            self.cc += 1
+            self._add_cog(1)
+            self._visit_block(n.body, inc_nesting=True)
+            self._visit_block(n.orelse, inc_nesting=True)
+
+        def visit_Try(self, n):
+            self.cc += len(getattr(n, "handlers", []))
+            if getattr(n, "finalbody", []):
+                self.cc += 1
+            self._visit_block(n.body, inc_nesting=True)
+            for h in getattr(n, "handlers", []):
+                self._add_cog(1)
+                self._visit_block(h.body, inc_nesting=True)
+            self._visit_block(n.orelse, inc_nesting=True)
+            self._visit_block(n.finalbody, inc_nesting=True)
+
+        def visit_With(self, n):
+            self._visit_block(n.body, inc_nesting=True)
+
+        def visit_AsyncWith(self, n):
+            self._visit_block(n.body, inc_nesting=True)
+
+        def visit_BoolOp(self, n):
+            inc = max(0, len(getattr(n, "values", [])) - 1)
+            self.cc += inc
+            self.cog += inc
+            self.generic_visit(n)
+
+        def visit_IfExp(self, n):
+            self.cc += 1
+            self._add_cog(1)
+            self.generic_visit(n)
+
+        def visit_comprehension(self, n):
+            self.cc += 1 + len(getattr(n, "ifs", []))
+            self._add_cog(1)
+            for _ in getattr(n, "ifs", []):
+                self._add_cog(1)
+            self.generic_visit(n)
+
+        def visit_Assert(self, n):
+            self.cc += 1
+            self.generic_visit(n)
+
+        def visit_Match(self, n):
+            self.cc += len(getattr(n, "cases", []))
+            for case in getattr(n, "cases", []):
+                self._add_cog(1)
+                self._visit_block(case.body, inc_nesting=True)
+            self.generic_visit(n)
+
+    visitor = CombinedVisitor()
+    visitor.visit(tree)
+    return visitor.cc, visitor.cog
+
+
+def get_cognitive_complexity_similarity(reference: str, prediction: str) -> float:
+    _, ref_cognitive = compute_python_complexities(reference)
+    _, pred_cognitive = compute_python_complexities(prediction)
+
+    if ref_cognitive is None or pred_cognitive is None:
+        return 0.0
+
+    diff = abs(ref_cognitive - pred_cognitive)
+    return 1.0 / (1.0 + diff)

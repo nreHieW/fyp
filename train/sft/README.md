@@ -46,7 +46,7 @@ uv run partial_edits/generate_solutions.py --questions_path data/questions/corru
 ```
 
 #### LiveCodeBench
-A LiveCodeBench fork has been provided in this folder. This fork fixes several bugs in the original LiveCodeBench repository and adds support for relevant models. For more information on the bugs fixed, see [this blog post](https://blog.collinear.ai/p/lcb-bug-fixes).
+A LiveCodeBench fork has been provided in this folder. This fork fixes several bugs in the original LiveCodeBench repository and adds support for relevant models. For more information on the bugs fixed, see [this blog post](https://blog.collinear.ai/p/lcb-bug-fixes). To add new models you will need to edit the [./lcb_runner/lm_styles.py](./lcb_runner/lm_styles.py) file.
 
 First install the dependencies. 
 ```bash
@@ -63,7 +63,8 @@ To evaluate the trained model, run the following command.
 uv run python -m lcb_runner.runner.main --model nreHieW/partial-edits-sft-qwen3-4b-instruct-2507 --scenario codegeneration --evaluate --release_version v6 --n 1
 ```
 
-#### TODO 
-- handle prompt length for prime rl 
+0.32571428571428573 hf upload nreHieW/partial-edits-rl-100-steps /workspace/prime-rl/outputs/weights/step_100
+
+
 
 

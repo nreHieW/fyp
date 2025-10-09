@@ -6,18 +6,17 @@
 #   year={2025}
 
 import asyncio
-import datetime
+import json
 import os
 import random
-import json
-from typing import Callable, List
+from typing import Callable, Dict, List
 
 import verifiers as vf
 from datasets import load_dataset
 from deepcoder_utils.legacy.deepcoder_genesys import extract_code_from_model
 from deepcoder_utils.local_verify import verify_deepcoder_local
 from partial_edits_utils.prompt_utils import SYSTEM_PROMPT, create_user_message
-from partial_edits_utils.similarity_utils import get_levenshtein_distance
+from partial_edits_utils.similarity_utils import get_cognitive_complexity_similarity, get_levenshtein_distance
 from verifiers.types import ChatMessage, Info, Messages, RolloutScores, State, ProcessedOutputs, RolloutScore
 
 from concurrent.futures import ProcessPoolExecutor
@@ -67,19 +66,41 @@ class DeepCoderRubric(vf.Rubric):
     - `primeintellect`
     """
 
-    def __init__(self, parser: CodeBlockParser, timeout_per_test: int = 20, max_tests: int = 2, levenshtein_weight: float = 0.2, **kwargs):
+    def __init__(
+        self,
+        parser: CodeBlockParser,
+        timeout_per_test: int = 20,
+        max_tests: int = 2,
+        similarity_metric: str = "levenshtein",
+        similarity_weight: float = 1.0,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.parser = parser
         self.timeout_per_test = timeout_per_test
         self.max_tests = max_tests
-        self.levenshtein_weight = levenshtein_weight
+        self.similarity_metric = similarity_metric
+        self.similarity_weight = similarity_weight
+
+    def _similarity_score(self, canonical: str, completion: str) -> Dict[str, float]:
+        if self.similarity_metric == "both":
+            return {
+                "levenshtein": 1.0 - get_levenshtein_distance(canonical, completion, normalize=True),
+                "cognitive_complexity": get_cognitive_complexity_similarity(canonical, completion),
+            }
+        if self.similarity_metric == "levenshtein":
+            normalized_distance = get_levenshtein_distance(canonical, completion, normalize=True)
+            return {"levenshtein": 1.0 - normalized_distance}
+        if self.similarity_metric == "cognitive_complexity":
+            return {"cognitive_complexity": get_cognitive_complexity_similarity(canonical, completion)}
+        return {}
 
     async def deepcoder_reward_func(
         self,
         completion: str | List[ChatMessage],
         info: dict,
         **kwargs,
-    ) -> tuple[float, float]:
+    ) -> tuple[float, Dict[str, float]]:
         """Execute code against test cases using deepcoder verification system."""
         # try:
         parsed_completion = self.parser.parse(completion[0]["content"])
@@ -99,19 +120,21 @@ class DeepCoderRubric(vf.Rubric):
             )
 
         if result == 0:
-            return 0.0, 0.0
+            if self.similarity_metric == "both":
+                return 0.0, {"levenshtein": 0.0, "cognitive_complexity": 0.0}
+            if self.similarity_metric == "levenshtein":
+                return 0.0, {"levenshtein": 0.0}
+            if self.similarity_metric == "cognitive_complexity":
+                return 0.0, {"cognitive_complexity": 0.0}
+            return 0.0, {}
         elif result == 1:
-            # Run Levenshtein distance calculation in executor to avoid blocking event loop
-            normalized_levenshtein_distance = await loop.run_in_executor(None, lambda: get_levenshtein_distance(info["canonical_solution"], parsed_completion, normalize=True))
-            return result, 1.0 - normalized_levenshtein_distance
+            similarity_score = await loop.run_in_executor(
+                None,
+                lambda: self._similarity_score(info["canonical_solution"], parsed_completion),
+            )
+            return result, similarity_score
         else:
             raise ValueError(f"Invalid result: {result}")
-
-        # except Exception as e:
-        #     print(f"Error in deepcoder verification: {repr(e)}")
-        #     print(f"Completion: {completion}")
-        #     print(f"Info: {info["canonical_solution"]}")
-        #     return 0.0, 0.0
 
     async def score_rollouts(
         self,
@@ -125,17 +148,24 @@ class DeepCoderRubric(vf.Rubric):
     ) -> RolloutScores:
         async def process_rollout(completion, info, state):
             # Run a single rollout locally
-            execution_reward, levenshtein_reward = await self.deepcoder_reward_func(completion=completion, info=info, **kwargs)
-            return execution_reward, levenshtein_reward
+            execution_reward, similarity_reward = await self.deepcoder_reward_func(completion=completion, info=info, **kwargs)
+            return execution_reward, similarity_reward
 
         tasks = []
         for completion, info, state in zip(completions, infos, states):
             tasks.append(asyncio.create_task(process_rollout(completion, info, state)))
-        rewards = await asyncio.gather(*tasks)
-        execution_rewards = [reward[0] for reward in rewards]
-        levenshtein_rewards = [reward[1] for reward in rewards]
-        rewards = [execution_reward + levenshtein_reward * self.levenshtein_weight for execution_reward, levenshtein_reward in rewards]
-        return RolloutScores(reward=rewards, metrics={"execution_reward": execution_rewards, "levenshtein_reward": levenshtein_rewards})
+        rollout_results = await asyncio.gather(*tasks)
+
+        execution_rewards = [result[0] for result in rollout_results]
+        similarity_rewards = [result[1] for result in rollout_results]
+
+        metrics = {"execution_reward": execution_rewards}
+        for key in sorted({k for similarity_reward in similarity_rewards for k in similarity_reward}):
+            metrics[f"{key}_reward"] = [similarity_reward.get(key, 0.0) for similarity_reward in similarity_rewards]
+
+        rewards = [execution_reward + self.similarity_weight * sum(similarity_reward.values()) for execution_reward, similarity_reward in zip(execution_rewards, similarity_rewards)]
+
+        return RolloutScores(reward=rewards, metrics=metrics)
 
     async def score_rollout(
         self,
@@ -143,10 +173,15 @@ class DeepCoderRubric(vf.Rubric):
         info: dict,
         **kwargs,
     ) -> RolloutScore:
-        print(f"Scoring rollout at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} + {completion}")
-        execution_reward, levenshtein_reward = await self.deepcoder_reward_func(completion=completion, info=info, **kwargs)
-        score = execution_reward + levenshtein_reward * self.levenshtein_weight
-        return RolloutScore(reward=score, metrics={"execution_reward": execution_reward, "levenshtein_reward": levenshtein_reward})
+        execution_reward, similarity_reward = await self.deepcoder_reward_func(completion=completion, info=info, **kwargs)
+
+        score = execution_reward + self.similarity_weight * sum(similarity_reward.values())
+
+        metrics = {"execution_reward": execution_reward}
+        for key in sorted(similarity_reward):
+            metrics[f"{key}_reward"] = similarity_reward[key]
+
+        return RolloutScore(reward=score, metrics=metrics)
 
 
 def _process_test(test: str) -> dict:
@@ -170,7 +205,8 @@ def load_environment(
     ds_num_proc: int = max(1, os.cpu_count() // 2),
     seed: int = 42,
     env_type: str = "both",
-    levenshtein_weight: float = 0.2,
+    similarity_metric: str = "levenshtein",
+    similarity_weight: float = 1.0,
     **kwargs,
 ) -> vf.Environment:
     """Load DeepCoder environment for coding problems with executable verification."""
@@ -178,7 +214,7 @@ def load_environment(
     random.seed(seed)
     train_dataset = load_dataset("nreHieW/DeepCoder-Partial-Edits" + ("-" + env_type if env_type in ["both", "ood"] else ""), split="train")
     # Ensure corrupted examples only
-    train_dataset = train_dataset.filter(lambda x: x["corrupted_answer"] is not None and len(x["corrupted_answer"]) < 5000)
+    train_dataset = train_dataset.filter(lambda x: x["corrupted_answer"] is not None and len(x["corrupted_answer"]) < 2000)
     train_dataset = train_dataset.map(
         lambda x: {
             "question": create_user_message(x["problem_spec"], x["corrupted_answer"]),
@@ -192,11 +228,17 @@ def load_environment(
             "task": "deepcoder",
         },
         num_proc=ds_num_proc,
-    )
+    ).shuffle(seed=seed)
 
     parser = CodeBlockParser()
 
-    rubric = DeepCoderRubric(parser=parser, timeout_per_test=timeout_per_test, max_tests=max_tests, levenshtein_weight=levenshtein_weight)
+    rubric = DeepCoderRubric(
+        parser=parser,
+        timeout_per_test=timeout_per_test,
+        max_tests=max_tests,
+        similarity_metric=similarity_metric,
+        similarity_weight=similarity_weight,
+    )
 
     vf_env = DeepCoderEnv(
         dataset=train_dataset,

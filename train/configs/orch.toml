@@ -1,15 +1,16 @@
-## to run on H100
-batch_size = 1024
-micro_batch_size = 2
+## problems_per_batch = config.batch_size // config.rollouts_per_example
+max_steps = 50
+batch_size = 512
+micro_batch_size = 1
 rollouts_per_example = 16
-seq_len = 8192
+seq_len = 4096
 mask_truncated_completions = false
 
 [model]
 name = "Qwen/Qwen3-4B-Instruct-2507"
 
 [sampling]
-max_tokens = 8192
+max_tokens = 4096
 
 
 [environment]
