@@ -11,17 +11,19 @@ from lcb_runner.benchmarks.code_generation import CodeGenerationProblem
 
 
 class PromptConstants:
-    SYSTEM_MESSAGE_GENERIC = f"You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program that matches the specification and passes all tests."
+    SYSTEM_MESSAGE_GENERIC = (
+        f"You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program that matches the specification and passes all tests."
+    )
 
     SYSTEM_MESSAGE_GEMINI = f"You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program that matches the specification and passes all tests. Do NOT use system calls like `exit` in the generated program. Ensure that the first code block contains the solution."
 
-    SYSTEM_MESSAGE_GEMINITHINK = f"You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program that matches the specification and passes all tests."
+    SYSTEM_MESSAGE_GEMINITHINK = (
+        f"You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program that matches the specification and passes all tests."
+    )
 
     SYSTEM_MESSAGE_DEEPSEEK = f"You are an AI programming assistant, utilizing the DeepSeek Coder model, developed by DeepSeek Company, and you answer questions related to computer science."
 
-    SYSTEM_MESSAGE_CODEQWEN = (
-        f"<|im_start|>system\nYou are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program that matches the specification and passes all tests. Wrap your response in ```python and ```. Answer with the code and nothing else.<|im_end|>\n<|im_start|>user"
-    )
+    SYSTEM_MESSAGE_CODEQWEN = f"<|im_start|>system\nYou are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program that matches the specification and passes all tests. Wrap your response in ```python and ```. Answer with the code and nothing else.<|im_end|>\n<|im_start|>user"
 
     SYSTEM_MESSAGE_QWEN_QWQ = f"<|im_start|>system\nYou are a helpful and harmless assistant. You are Qwen developed by Alibaba. You should think step-by-step.<|im_end|>\n<|im_start|>user"
 
@@ -40,9 +42,7 @@ class PromptConstants:
 def get_generic_question_template_answer(question: CodeGenerationProblem):
     prompt = f"### Question:\n{question.question_content}\n\n"
     if question.starter_code:
-        prompt += (
-            f"### Format: {PromptConstants.FORMATTING_MESSAGE_WITH_STARTER_CODE}\n"
-        )
+        prompt += f"### Format: {PromptConstants.FORMATTING_MESSAGE_WITH_STARTER_CODE}\n"
         prompt += f"```python\n{question.starter_code}\n```\n\n"
     else:
         prompt += f"### Format: {PromptConstants.FORMATTING_WITHOUT_STARTER_CODE}\n"
@@ -54,9 +54,7 @@ def get_generic_question_template_answer(question: CodeGenerationProblem):
 def get_oaireason_question_template_answer(question: CodeGenerationProblem):
     prompt = f"### Question:\n{question.question_content}\n\n"
     if question.starter_code:
-        prompt += (
-            f"### Format: {PromptConstants.FORMATTING_MESSAGE_WITH_STARTER_CODE}\n"
-        )
+        prompt += f"### Format: {PromptConstants.FORMATTING_MESSAGE_WITH_STARTER_CODE}\n"
         prompt += f"```python\n{question.starter_code}\n```\n\n"
     else:
         prompt += f"### Format: Implement a function called `main()` which orchastrates the solution by reading inputs from stdin and writing the answer to stdout. Feel free to use additional functions as necessary. Next do NOT forget to call `main` function at the end of the program otherwise you will not be awarded any points.\n"
@@ -68,9 +66,7 @@ def get_oaireason_question_template_answer(question: CodeGenerationProblem):
 def get_geminithinking_question_template_answer(question: CodeGenerationProblem):
     prompt = f"### Question:\n{question.question_content}\n\n"
     if question.starter_code:
-        prompt += (
-            f"### Format: {PromptConstants.FORMATTING_MESSAGE_WITH_STARTER_CODE}\n"
-        )
+        prompt += f"### Format: {PromptConstants.FORMATTING_MESSAGE_WITH_STARTER_CODE}\n"
         prompt += f"```python\n{question.starter_code}\n```\n\n"
     else:
         prompt += f"### Format: {PromptConstants.FORMATTING_WITHOUT_STARTER_CODE}\n"
@@ -83,14 +79,10 @@ def get_deepseekcode_question_template_answer(question: CodeGenerationProblem):
     prompt = f"### Instruction: You will be given a question (problem specification) and will generate a correct Python program that matches the specification and passes all tests. You will NOT return anything except for the program.\n\n"
     prompt += f"Question:\n{question.question_content}\n\n"
     if question.starter_code:
-        prompt += (
-            f"### Instruction: {PromptConstants.FORMATTING_MESSAGE_WITH_STARTER_CODE}\n"
-        )
+        prompt += f"### Instruction: {PromptConstants.FORMATTING_MESSAGE_WITH_STARTER_CODE}\n"
         prompt += f"```python\n{question.starter_code}\n```\n\n"
     else:
-        prompt += (
-            f"### Instruction: {PromptConstants.FORMATTING_WITHOUT_STARTER_CODE}\n"
-        )
+        prompt += f"### Instruction: {PromptConstants.FORMATTING_WITHOUT_STARTER_CODE}\n"
         prompt += f"```python\n# YOUR CODE HERE\n```\n\n"
     prompt += f"### Response:\n\n"
     return prompt
@@ -99,9 +91,7 @@ def get_deepseekcode_question_template_answer(question: CodeGenerationProblem):
 def get_qwen_question_template_answer(question: CodeGenerationProblem):
     from transformers import AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(
-        "Qwen/Qwen3-4B-Instruct-2507", padding_side="left", use_fast=False
-    )
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-4B-Instruct-2507", padding_side="left", use_fast=False)
     prompt = "You will be given a question (problem specification) and will generate a correct Python program that matches the specification and passes all tests. You will NOT return anything except for the program.\n\n"
     prompt += f"Question:\n{question.question_content}\n\n"
     if question.starter_code:
@@ -206,9 +196,7 @@ def get_base_model_question_template_answer(question: CodeGenerationProblem):
     return prompt
 
 
-def format_prompt_generation(
-    question: CodeGenerationProblem, LanguageModelStyle: LMStyle
-) -> str:
+def format_prompt_generation(question: CodeGenerationProblem, LanguageModelStyle: LMStyle) -> str:
     if LanguageModelStyle in [
         LMStyle.OpenAIChat,
         LMStyle.DeepSeekAPI,
@@ -232,9 +220,7 @@ def format_prompt_generation(
         chat_messages = [
             {
                 "role": "user",
-                "content": PromptConstants.SYSTEM_MESSAGE_GENERIC
-                + "\n\n"
-                + get_generic_question_template_answer(question),
+                "content": PromptConstants.SYSTEM_MESSAGE_GENERIC + "\n\n" + get_generic_question_template_answer(question),
             },
         ]
         return chat_messages
@@ -242,9 +228,7 @@ def format_prompt_generation(
         chat_messages = [
             {
                 "role": "user",
-                "content": PromptConstants.SYSTEM_MESSAGE_GENERIC
-                + "\n\n"
-                + get_oaireason_question_template_answer(question),
+                "content": PromptConstants.SYSTEM_MESSAGE_GENERIC + "\n\n" + get_oaireason_question_template_answer(question),
             },
         ]
         return chat_messages
@@ -264,9 +248,7 @@ def format_prompt_generation(
         ]
         from transformers import AutoTokenizer
 
-        tokenizer = AutoTokenizer.from_pretrained(
-            "meta-llama/Meta-Llama-3-8B-Instruct", padding_side="left", use_fast=False
-        )
+        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3-8B-Instruct", padding_side="left", use_fast=False)
         return tokenizer.apply_chat_template(
             chat_messages,
             tokenize=False,
@@ -340,13 +322,10 @@ def format_prompt_generation(
         return prompt
 
     if LanguageModelStyle == LMStyle.Qwen3Instruct:
-        prompt = f"{PromptConstants.SYSTEM_MESSAGE_CODEQWEN}\n\n"
-        prompt += f"{get_qwen_question_template_answer(question)}"
+        prompt = get_qwen_question_template_answer(question)
         return prompt
 
-    raise NotImplementedError(
-        f"LanguageModelStyle {LanguageModelStyle} not implemented"
-    )
+    raise NotImplementedError(f"LanguageModelStyle {LanguageModelStyle} not implemented")
 
 
 def test():
