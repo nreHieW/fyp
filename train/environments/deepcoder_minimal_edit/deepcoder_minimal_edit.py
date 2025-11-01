@@ -57,15 +57,6 @@ class DeepCoderEnv(vf.SingleTurnEnv):
 
 
 class DeepCoderRubric(vf.Rubric):
-    """
-    Environment for DeepCoder coding problems with executable verification.
-
-    Sets up prime-intellect sandbox for each rollout.
-
-    Supports the following task types:
-    - `primeintellect`
-    """
-
     def __init__(
         self,
         parser: CodeBlockParser,
@@ -82,18 +73,20 @@ class DeepCoderRubric(vf.Rubric):
         self.similarity_metric = similarity_metric
         self.similarity_weight = similarity_weight
 
-    def _similarity_score(self, canonical: str, completion: str) -> Dict[str, float]:
-        if self.similarity_metric == "both":
-            return {
-                "levenshtein": 1.0 - get_levenshtein_distance(canonical, completion, normalize=True),
-                "cognitive_complexity": get_cognitive_complexity_similarity(canonical, completion),
-            }
-        if self.similarity_metric == "levenshtein":
-            normalized_distance = get_levenshtein_distance(canonical, completion, normalize=True)
-            return {"levenshtein": 1.0 - normalized_distance}
-        if self.similarity_metric == "cognitive_complexity":
-            return {"cognitive_complexity": get_cognitive_complexity_similarity(canonical, completion)}
-        return {}
+    def _similarity_score(self, canonical: str, corrupted: str, completion: str) -> Dict[str, float]:
+        scores: Dict[str, float] = {}
+
+        if self.similarity_metric in {"levenshtein", "both"}:
+            baseline_distance = get_levenshtein_distance(canonical, corrupted, normalize=True, ignore_comments=True)
+            completion_distance = get_levenshtein_distance(completion, corrupted, normalize=True, ignore_comments=True)
+            scores["levenshtein"] = completion_distance - baseline_distance
+
+        if self.similarity_metric in {"cognitive_complexity", "both"}:
+            baseline_similarity = get_cognitive_complexity_similarity(canonical, corrupted)
+            completion_similarity = get_cognitive_complexity_similarity(completion, corrupted)
+            scores["cognitive_complexity"] = completion_similarity - baseline_similarity
+
+        return scores
 
     async def deepcoder_reward_func(
         self,
@@ -130,7 +123,7 @@ class DeepCoderRubric(vf.Rubric):
         elif result == 1:
             similarity_score = await loop.run_in_executor(
                 None,
-                lambda: self._similarity_score(info["canonical_solution"], parsed_completion),
+                lambda: self._similarity_score(info["canonical_solution"], info["corrupted_solution"], parsed_completion),
             )
             return result, similarity_score
         else:
@@ -158,12 +151,14 @@ class DeepCoderRubric(vf.Rubric):
 
         execution_rewards = [result[0] for result in rollout_results]
         similarity_rewards = [result[1] for result in rollout_results]
+        adjusted_similarity_rewards = [{k: -v for k, v in similarity_reward.items()} for similarity_reward in similarity_rewards]
 
-        metrics = {"execution_reward": execution_rewards}
-        for key in sorted({k for similarity_reward in similarity_rewards for k in similarity_reward}):
-            metrics[f"{key}_reward"] = [similarity_reward.get(key, 0.0) for similarity_reward in similarity_rewards]
+        metrics = {
+            "execution_reward": execution_rewards,
+            **{k: [similarity_reward[k] for similarity_reward in adjusted_similarity_rewards] for k in adjusted_similarity_rewards[0]},
+        }
 
-        rewards = [execution_reward + self.similarity_weight * sum(similarity_reward.values()) for execution_reward, similarity_reward in zip(execution_rewards, similarity_rewards)]
+        rewards = [execution_reward + self.similarity_weight * sum(similarity_reward.values()) for execution_reward, similarity_reward in zip(execution_rewards, adjusted_similarity_rewards)]
 
         return RolloutScores(reward=rewards, metrics=metrics)
 
@@ -175,13 +170,15 @@ class DeepCoderRubric(vf.Rubric):
     ) -> RolloutScore:
         execution_reward, similarity_reward = await self.deepcoder_reward_func(completion=completion, info=info, **kwargs)
 
-        score = execution_reward + self.similarity_weight * sum(similarity_reward.values())
+        # invert the similarity rewards (lower is better)
+        similarity_reward = {k: -v for k, v in similarity_reward.items()}
 
-        metrics = {"execution_reward": execution_reward}
-        for key in sorted(similarity_reward):
-            metrics[f"{key}_reward"] = similarity_reward[key]
+        metrics = {
+            "execution_reward": execution_reward,
+            **{k: similarity_reward[k] for k in similarity_reward},
+        }
 
-        return RolloutScore(reward=score, metrics=metrics)
+        return RolloutScore(reward=execution_reward + self.similarity_weight * sum(similarity_reward.values()), metrics=metrics)
 
 
 def _process_test(test: str) -> dict:
@@ -207,14 +204,24 @@ def load_environment(
     env_type: str = "both",
     similarity_metric: str = "levenshtein",
     similarity_weight: float = 1.0,
+    sort_by_difficulty: bool = False,
     **kwargs,
 ) -> vf.Environment:
     """Load DeepCoder environment for coding problems with executable verification."""
     assert env_type in ["non_ood", "ood", "both"]
     random.seed(seed)
-    train_dataset = load_dataset("nreHieW/DeepCoder-Partial-Edits" + ("-" + env_type if env_type in ["both", "ood"] else ""), split="train")
+    train_dataset = load_dataset("nreHieW/DeepCoder-Partial-Edits" + ("-" + env_type if env_type in ["both", "ood"] else "") + "-filtered", split="train").shuffle(seed=seed)
+
     # Ensure corrupted examples only
     train_dataset = train_dataset.filter(lambda x: x["corrupted_answer"] is not None and len(x["corrupted_answer"]) < 2000)
+
+    if sort_by_difficulty:
+        train_dataset = train_dataset.map(
+            lambda example: {"_applied_mutations_len": len(example.get("applied_mutations", [])) if isinstance(example.get("applied_mutations"), list) else 0},
+            num_proc=ds_num_proc,
+        )
+        train_dataset = train_dataset.sort("_applied_mutations_len")
+        train_dataset = train_dataset.remove_columns(["_applied_mutations_len"])
     train_dataset = train_dataset.map(
         lambda x: {
             "question": create_user_message(x["problem_spec"], x["corrupted_answer"]),
@@ -228,7 +235,7 @@ def load_environment(
             "task": "deepcoder",
         },
         num_proc=ds_num_proc,
-    ).shuffle(seed=seed)
+    )
 
     parser = CodeBlockParser()
 

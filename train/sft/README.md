@@ -25,9 +25,8 @@ First install and set up [prime-rl](https://github.com/PrimeIntellect-ai/prime-r
 curl -sSL https://raw.githubusercontent.com/PrimeIntellect-ai/prime-rl/main/scripts/install.sh | bash
 cd prime-rl
 prime login
-uv sync --no-build-isolation-package flash-attn
-uv sync
-vf-install deepcoder-minimal-edit -p fyp/train/environments
+uv run wandb login
+vf-install deepcoder-minimal-edit -p ../fyp/train/environments
 ```
 
 To run the RL training, run the following command. Adjust the config files and the number of GPUs as needed. Follow the instructions in the [prime-rl](https://github.com/PrimeIntellect-ai/prime-rl) repository for more details.

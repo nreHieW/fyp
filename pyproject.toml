@@ -29,7 +29,10 @@ training = [
 
 [dependency-groups]
 dev = [
+    "autopep8>=2.3.2",
+    "black>=25.1.0",
     "ipykernel>=6.29.5",
+    "yapf>=0.43.0",
 ]
 
 [tool.uv.sources]

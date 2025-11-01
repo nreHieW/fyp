@@ -10,8 +10,12 @@ from tqdm import tqdm
 from datasets import load_dataset
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from partial_edits.utils.extract_utils import extract_function_body, standardize_code_formatting
-from partial_edits.utils.similarity_utils import (
+from utils.extract_utils import extract_function_body, standardize_code_formatting
+from utils.complexity_utils import (
+    compute_per_task_complexity,
+    aggregate_complexity_metrics,
+)
+from utils.similarity_utils import (
     get_levenshtein_distance,
     count_diff_lines,
     get_structured_diff,
@@ -352,7 +356,7 @@ def evaluate(sample_path: str, save_results: bool = True, max_workers: int = 8, 
     print(f"Evaluating {len(tasks)} solutions using {max_workers} workers...")
     all_results = _run_evaluations(tasks, max_workers)
 
-    print("Processing results and calculating diffs...")
+    print("Processing results and calculating diffs and complexities...")
     results = {"date": datetime.now().strftime("%Y-%m-%d %H:%M"), "eval": {}, "metrics": {}}
 
     bodies_cache = {}
@@ -365,29 +369,34 @@ def evaluate(sample_path: str, save_results: bool = True, max_workers: int = 8, 
     similarity_calc = SimilarityCalculator(get_body_cached)
     passed_tasks = 0
 
+    per_task_complexities = []
+
     for result in all_results:
         task_id = result["task_id"]
         original_sample = next((s for s in solutions if s["task_id"] == task_id), None)
 
+        canonical_solution = original_sample.get("canonical_solution") if original_sample else None
+        corrupted_solution = original_sample.get("corrupted_solution") if original_sample else None
+        llm_solution = result["solution"]
+
         task_data = {
             "task_id": task_id,
-            "solution": result["solution"],
-            "canonical_solution": original_sample.get("canonical_solution") if original_sample else None,
-            "corrupted_solution": original_sample.get("corrupted_solution") if original_sample else None,
+            "solution": llm_solution,
+            "canonical_solution": canonical_solution,
+            "corrupted_solution": corrupted_solution,
             "status": result["status"],
             "details": result["details"],
-            "diffs": calculate_diffs(
-                original_sample.get("corrupted_solution", "") if original_sample else "", original_sample.get("canonical_solution", "") if original_sample else "", result["solution"]
-            ),
+            "diffs": calculate_diffs(corrupted_solution or "", canonical_solution or "", llm_solution),
             "similarity_metrics": _process_similarity_metrics(
                 {
-                    "canonical_solution": original_sample.get("canonical_solution") if original_sample else None,
-                    "corrupted_solution": original_sample.get("corrupted_solution") if original_sample else None,
-                    "solution": result["solution"],
+                    "canonical_solution": canonical_solution,
+                    "corrupted_solution": corrupted_solution,
+                    "solution": llm_solution,
                 },
                 eval_similarity,
                 similarity_calc,
             ),
+            "complexity_metrics": compute_per_task_complexity(llm_solution, canonical_solution, corrupted_solution),
             "prompt": original_sample.get("prompt", "") if original_sample else "",
             "llm_response": original_sample.get("llm_response", "") if original_sample else "",
             "token_usage": original_sample.get("token_usage", {}) if original_sample else {},
@@ -397,6 +406,7 @@ def evaluate(sample_path: str, save_results: bool = True, max_workers: int = 8, 
         # Compute and store the difference only inside similarity_metrics for averaging
         task_data["similarity_metrics"]["difference_with_canonical"] = _compute_difference_with_canonical(task_data.get("similarity_metrics", {}))
         results["eval"][task_id] = task_data
+        per_task_complexities.append(task_data["complexity_metrics"])  # for aggregation
         if result["status"] == PASS:
             passed_tasks += 1
 
@@ -409,6 +419,7 @@ def evaluate(sample_path: str, save_results: bool = True, max_workers: int = 8, 
         "passed_problems": passed_tasks,
         "eval_similarity": eval_similarity,
         "similarity_metrics": avg_similarity if eval_similarity else None,
+        "complexity_metrics": aggregate_complexity_metrics(per_task_complexities),
     }
     results["metrics"] = metrics
 

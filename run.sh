@@ -3,6 +3,9 @@
 set -e
 
 FILES=(
+    "/Users/weihern/Documents/NUS/fyp/data/code_edits/results_qwen3-4b-instruct-2507-mix_non_reasoning_400.jsonl" \
+    "/Users/weihern/Documents/NUS/fyp/data/code_edits/results_qwen3-4b-instruct-2507-codegen_non_reasoning_400.jsonl" \
+    "/Users/weihern/Documents/NUS/fyp/data/code_edits/results_qwen3-4b-instruct-2507-1-epoch-both-1e6lr-1e-3gradnorm_non_reasoning_400.jsonl"
 )
 
 # Check if all files exist before proceeding

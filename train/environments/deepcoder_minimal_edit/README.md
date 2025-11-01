@@ -41,6 +41,7 @@ Document any supported environment arguments and their meaning. Example:
 | `env_type` | str | `"both"` | Type of environment to use: `"non_ood"`, `"ood"`, `"both"` |
 | `similarity_metric` | str | `"levenshtein"` | Similarity reward to mix with execution: `"levenshtein"` (token edit distance) or `"cognitive_complexity"` (complexity gap). |
 | `similarity_weight` | float | `1.0` | Multiplier applied to the similarity reward before combining with execution reward. |
+| `sort_by_difficulty` | bool | `false` | Preserve dataset order and sort samples by applied mutation count (ascending) instead of shuffling. |
 
 ### Metrics
 Summarize key metrics your rubric emits and how they’re interpreted.
