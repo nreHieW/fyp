@@ -26,7 +26,7 @@ curl -sSL https://raw.githubusercontent.com/PrimeIntellect-ai/prime-rl/main/scri
 cd prime-rl
 prime login
 uv run wandb login
-vf-install deepcoder-minimal-edit -p ../fyp/train/environments
+uv run vf-install deepcoder-minimal-edit -p ../fyp/train/environments
 ```
 
 To run the RL training, run the following command. Adjust the config files and the number of GPUs as needed. Follow the instructions in the [prime-rl](https://github.com/PrimeIntellect-ai/prime-rl) repository for more details.

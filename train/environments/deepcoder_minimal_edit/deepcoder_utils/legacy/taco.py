@@ -20,7 +20,13 @@ from prime_cli.api.client import APIError
 from prime_cli.api.sandbox import CommandTimeoutError, SandboxNotRunningError
 
 from deepcoder_utils.legacy.pyext2 import RuntimeModule
-from deepcoder_utils.sandbox_utils import pipe_file_content_into_sandbox
+
+# Optional import for sandbox functions (not used by local_verify.py)
+try:
+    from deepcoder_utils.sandbox_utils import pipe_file_content_into_sandbox
+except ImportError:
+    # Sandbox utils not available - sandbox functions won't work but are unused anyway
+    pipe_file_content_into_sandbox = None
 
 from .utils import BASE_IMPORTS
 

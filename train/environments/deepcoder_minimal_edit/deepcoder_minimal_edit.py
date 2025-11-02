@@ -19,9 +19,6 @@ from partial_edits_utils.prompt_utils import SYSTEM_PROMPT, create_user_message
 from partial_edits_utils.similarity_utils import get_cognitive_complexity_similarity, get_levenshtein_distance
 from verifiers.types import ChatMessage, Info, Messages, RolloutScores, State, ProcessedOutputs, RolloutScore
 
-from concurrent.futures import ProcessPoolExecutor
-from functools import partial
-
 
 class CodeBlockParser(vf.ThinkParser):
     """Parser to extract code from model responses after ThinkParser processing."""
@@ -95,22 +92,20 @@ class DeepCoderRubric(vf.Rubric):
         **kwargs,
     ) -> tuple[float, Dict[str, float]]:
         """Execute code against test cases using deepcoder verification system."""
-        # try:
-        parsed_completion = self.parser.parse(completion[0]["content"])
-        # TODO: Docs
-        loop = asyncio.get_event_loop()
-        with ProcessPoolExecutor(max_workers=1) as pool:
-            verify_partial = partial(
-                verify_deepcoder_local,
-                completion=parsed_completion,
-                verification_info=info,
-                timeout_per_test=self.timeout_per_test,
-                max_tests=self.max_tests,
-            )
+        try:
+            parsed_completion = self.parser.parse(completion[0]["content"])
             result = await asyncio.wait_for(
-                loop.run_in_executor(pool, verify_partial),
+                asyncio.to_thread(
+                    verify_deepcoder_local,
+                    completion=parsed_completion,
+                    verification_info=info,
+                    timeout_per_test=self.timeout_per_test,
+                    max_tests=self.max_tests,
+                ),
                 timeout=self.timeout_per_test * self.max_tests,
             )
+        except (asyncio.TimeoutError, Exception) as e:
+            result = 0
 
         if result == 0:
             if self.similarity_metric == "both":
@@ -121,9 +116,11 @@ class DeepCoderRubric(vf.Rubric):
                 return 0.0, {"cognitive_complexity": 0.0}
             return 0.0, {}
         elif result == 1:
-            similarity_score = await loop.run_in_executor(
-                None,
-                lambda: self._similarity_score(info["canonical_solution"], info["corrupted_solution"], parsed_completion),
+            similarity_score = await asyncio.to_thread(
+                self._similarity_score,
+                info["canonical_solution"],
+                info["corrupted_solution"],
+                parsed_completion,
             )
             return result, similarity_score
         else:

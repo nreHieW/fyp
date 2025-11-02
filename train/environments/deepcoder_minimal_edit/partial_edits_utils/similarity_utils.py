@@ -2,8 +2,6 @@ import ast
 import Levenshtein
 import tokenize
 import io
-from nltk.translate.chrf_score import corpus_chrf
-from codebleu import calc_codebleu
 from functools import wraps
 from typing import Optional, Tuple
 
@@ -119,29 +117,6 @@ def get_levenshtein_distance(reference: str, prediction: str, normalize: bool = 
     if normalize:
         return distance / max(len(ref_tokens), len(pred_tokens))
     return distance
-
-
-@handle_comments
-def get_chrf_score(reference: str, prediction: str) -> float:
-    ref_sentences = [reference] if reference.strip() else [""]
-    pred_sentences = [prediction] if prediction.strip() else [""]
-    return corpus_chrf(ref_sentences, pred_sentences)
-
-
-# codebleu has a strip inside which affects the case with only the function body so we cannot use tokenize_code
-@handle_comments
-def get_codebleu_score(reference: str, prediction: str, lang="python", weights=(1 / 3, 1 / 3, 1 / 3, 0)) -> dict:
-    result = calc_codebleu([reference], [prediction], lang=lang, weights=weights, tokenizer=None)
-    return {"codebleu": result.get("codebleu", 0.0)}
-
-
-def calculate_corpus_codebleu_score(references: list, predictions: list, lang="python", weights=(1 / 3, 1 / 3, 1 / 3, 0), ignore_comments: bool = False) -> float:
-    if ignore_comments:
-        references = [standardize_code_formatting(ref) for ref in references]
-        predictions = [standardize_code_formatting(pred) for pred in predictions]
-
-    result = calc_codebleu(references, predictions, lang=lang, weights=weights, tokenizer=None)
-    return result.get("codebleu", 0.0)
 
 
 def compute_python_complexities(code: Optional[str]) -> Tuple[Optional[int], Optional[int]]:
