@@ -18,6 +18,7 @@ from .legacy.taco import (
     synthesize_cb_code,
     synthesize_std_code,
 )
+from deepcoder_utils.legacy.utils import BASE_IMPORTS
 
 
 def _execute_std_code_local(
@@ -104,7 +105,7 @@ def _execute_std_code_local(
 
 
 def run_test_local(in_outs, test=None, debug=False, timeout=90):
-    test = f"{test}"
+    test = f"{BASE_IMPORTS}\n{test}"
     if isinstance(in_outs, str):
         try:
             in_outs = ast.literal_eval(in_outs)
