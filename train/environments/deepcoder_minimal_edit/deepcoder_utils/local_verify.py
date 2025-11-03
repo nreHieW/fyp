@@ -231,7 +231,6 @@ def check_correctness_local(
             test=code,
             timeout=timeout_per_test,
         )
-        print(result)
         if not result:
             return False
         if isinstance(result, List):

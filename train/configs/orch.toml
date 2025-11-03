@@ -14,7 +14,7 @@ max_tokens = 4096
 
 [environment]
 id = "deepcoder-minimal-edit"
-args = { env_type = "both" }
+args = { env_type = "both", similarity_weight = 1.0 }
 
 [wandb.log_extras]
 interval = 10

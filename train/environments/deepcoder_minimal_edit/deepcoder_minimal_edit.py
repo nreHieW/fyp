@@ -10,7 +10,7 @@ import json
 import os
 import random
 from typing import Callable, Dict, List
-
+import concurrent.futures
 import verifiers as vf
 from datasets import load_dataset
 from deepcoder_utils.legacy.deepcoder_genesys import extract_code_from_model
@@ -92,22 +92,25 @@ class DeepCoderRubric(vf.Rubric):
         **kwargs,
     ) -> tuple[float, Dict[str, float]]:
         """Execute code against test cases using deepcoder verification system."""
-        try:
-            parsed_completion = self.parser.parse(completion[0]["content"])
-            result = await asyncio.wait_for(
-                asyncio.to_thread(
-                    verify_deepcoder_local,
-                    completion=parsed_completion,
-                    verification_info=info,
-                    timeout_per_test=self.timeout_per_test,
-                    max_tests=self.max_tests,
-                ),
-                timeout=self.timeout_per_test * self.max_tests,
-            )
-        except (asyncio.TimeoutError, Exception) as e:
-            result = 0
+        parsed_completion = self.parser.parse(completion[0]["content"])
+        loop = asyncio.get_running_loop()
+        with concurrent.futures.ProcessPoolExecutor(max_workers=1) as pool:
+            try:
+                execution_result = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        pool,
+                        verify_deepcoder_local,
+                        parsed_completion,
+                        info,
+                        self.timeout_per_test,
+                        self.max_tests,
+                    ),
+                    timeout=self.timeout_per_test * self.max_tests,
+                )
+            except asyncio.TimeoutError:
+                execution_result = 0
 
-        if result == 0:
+        if execution_result == 0:
             if self.similarity_metric == "both":
                 return 0.0, {"levenshtein": 0.0, "cognitive_complexity": 0.0}
             if self.similarity_metric == "levenshtein":
@@ -115,16 +118,16 @@ class DeepCoderRubric(vf.Rubric):
             if self.similarity_metric == "cognitive_complexity":
                 return 0.0, {"cognitive_complexity": 0.0}
             return 0.0, {}
-        elif result == 1:
+        elif execution_result == 1:
             similarity_score = await asyncio.to_thread(
                 self._similarity_score,
                 info["canonical_solution"],
                 info["corrupted_solution"],
                 parsed_completion,
             )
-            return result, similarity_score
+            return execution_result, similarity_score
         else:
-            raise ValueError(f"Invalid result: {result}")
+            raise ValueError(f"Invalid execution_result: {execution_result}")
 
     async def score_rollouts(
         self,

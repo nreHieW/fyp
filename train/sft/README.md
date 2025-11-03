@@ -53,16 +53,15 @@ uv pip install -e .
 uv pip install datasets==3.6
 ```
 
-To run the baseline, run the following command. This should give you a score of `0.3053435114503817`.
+To run the baseline, run the following command. This should give you a score of `0.32571428571428573`.
 ```bash
 uv run python -m lcb_runner.runner.main --model Qwen/Qwen3-4B-Instruct-2507 --scenario codegeneration --evaluate --release_version v6 --n 1
 ```
 To evaluate the trained model, run the following command.
 ```bash
-uv run python -m lcb_runner.runner.main --model nreHieW/partial-edits-sft-qwen3-4b-instruct-2507 --scenario codegeneration --evaluate --release_version v6 --n 1
+uv run python -m lcb_runner.runner.main --scenario codegeneration --evaluate --release_version v6 --n 1 --model nreHieW/partial-edits-sft-qwen3-4b-instruct-2507 
 ```
 
-0.32571428571428573 hf upload nreHieW/partial-edits-rl-100-steps /workspace/prime-rl/outputs/weights/step_100
 
 
 

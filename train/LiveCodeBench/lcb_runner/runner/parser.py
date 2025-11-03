@@ -46,22 +46,16 @@ def get_args():
         action="store_true",
         help="whether to use CoT in code execution scenario",
     )
-    parser.add_argument(
-        "--n", type=int, default=10, help="Number of samples to generate"
-    )
+    parser.add_argument("--n", type=int, default=10, help="Number of samples to generate")
     parser.add_argument(
         "--codegen_n",
         type=int,
         default=10,
         help="Number of samples for which code generation was run (used to map the code generation file during self-repair)",
     )
-    parser.add_argument(
-        "--temperature", type=float, default=0.2, help="Temperature for sampling"
-    )
-    parser.add_argument("--top_p", type=float, default=0.95, help="Top p for sampling")
-    parser.add_argument(
-        "--max_tokens", type=int, default=2000, help="Max tokens for sampling"
-    )
+    parser.add_argument("--temperature", type=float, default=0.7, help="Temperature for sampling")
+    parser.add_argument("--top_p", type=float, default=0.8, help="Top p for sampling")
+    parser.add_argument("--max_tokens", type=int, default=2000, help="Max tokens for sampling")
     parser.add_argument(
         "--multiprocess",
         default=0,
@@ -76,12 +70,8 @@ def get_args():
     )
     parser.add_argument("--continue_existing", action="store_true")
     parser.add_argument("--continue_existing_with_eval", action="store_true")
-    parser.add_argument(
-        "--use_cache", action="store_true", help="Use cache for generation"
-    )
-    parser.add_argument(
-        "--cache_batch_size", type=int, default=100, help="Batch size for caching"
-    )
+    parser.add_argument("--use_cache", action="store_true", help="Use cache for generation")
+    parser.add_argument("--cache_batch_size", type=int, default=100, help="Batch size for caching")
     parser.add_argument("--debug", action="store_true", help="Debug mode")
     parser.add_argument("--evaluate", action="store_true", help="Evaluate the results")
     parser.add_argument(
@@ -91,9 +81,7 @@ def get_args():
         help="Number of processes to use for evaluation",
     )
     parser.add_argument("--timeout", type=int, default=6, help="Timeout for evaluation")
-    parser.add_argument(
-        "--openai_timeout", type=int, default=90, help="Timeout for requests to OpenAI"
-    )
+    parser.add_argument("--openai_timeout", type=int, default=90, help="Timeout for requests to OpenAI")
     parser.add_argument(
         "--tensor_parallel_size",
         type=int,
@@ -134,7 +122,7 @@ def get_args():
 
     args = parser.parse_args()
 
-    args.stop = args.stop.split(",") if args.stop else None # stop flag is default to None
+    args.stop = args.stop.split(",") if args.stop else None  # stop flag is default to None
 
     if args.tensor_parallel_size == -1:
         args.tensor_parallel_size = torch.cuda.device_count()
