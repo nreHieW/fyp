@@ -164,11 +164,20 @@ class DeepCoderRubric(vf.Rubric):
 
     async def score_rollout(
         self,
+        prompt: Messages,
         completion: str | List[ChatMessage],
-        info: dict,
+        answer: str = "",
+        state: State | None = None,
+        task: str = "default",
+        info: Info | None = None,
+        example_id: int | None = None,
         **kwargs,
     ) -> RolloutScore:
-        execution_reward, similarity_reward = await self.deepcoder_reward_func(completion=completion, info=info, **kwargs)
+        execution_reward, similarity_reward = await self.deepcoder_reward_func(
+            completion=completion,
+            info=info,
+            **kwargs,
+        )
 
         # invert the similarity rewards (lower is better)
         similarity_reward = {k: -v for k, v in similarity_reward.items()}
@@ -179,6 +188,9 @@ class DeepCoderRubric(vf.Rubric):
         }
 
         return RolloutScore(reward=execution_reward + self.similarity_weight * sum(similarity_reward.values()), metrics=metrics)
+
+    def get_reward_func_names(self) -> list[str]:
+        return ["execution_reward", "levenshtein", "cognitive_complexity"]
 
 
 def _process_test(test: str) -> dict:

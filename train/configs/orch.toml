@@ -12,9 +12,11 @@ name = "Qwen/Qwen3-4B-Instruct-2507"
 max_tokens = 4096
 
 
-[environment]
+[[env]]
 id = "deepcoder-minimal-edit"
-args = { env_type = "both", similarity_weight = 1.0 }
+env_type = "ood"
+similarity_weight = 1.0
+similarity_metric = "levenshtein"
 
 [wandb.log_extras]
 interval = 10
