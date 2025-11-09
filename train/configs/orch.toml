@@ -21,7 +21,6 @@ similarity_metric = "levenshtein"
 [wandb.log_extras]
 interval = 10
 
-[eval]
 
 [ckpt]
 interval = 200 

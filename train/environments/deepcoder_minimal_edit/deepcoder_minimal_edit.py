@@ -158,7 +158,13 @@ class DeepCoderRubric(vf.Rubric):
             **{k: [similarity_reward[k] for similarity_reward in adjusted_similarity_rewards] for k in adjusted_similarity_rewards[0]},
         }
 
-        rewards = [execution_reward + self.similarity_weight * sum(similarity_reward.values()) for execution_reward, similarity_reward in zip(execution_rewards, adjusted_similarity_rewards)]
+        rewards = [0.1 * execution_reward + self.similarity_weight * sum(similarity_reward.values()) for execution_reward, similarity_reward in zip(execution_rewards, adjusted_similarity_rewards)]
+
+        # metrics = {
+        #     **{k: [similarity_reward[k] for similarity_reward in adjusted_similarity_rewards] for k in adjusted_similarity_rewards[0]},
+        # }
+
+        # rewards = [self.similarity_weight * sum(similarity_reward.values()) for similarity_reward in adjusted_similarity_rewards]
 
         return RolloutScores(reward=rewards, metrics=metrics)
 
@@ -183,11 +189,11 @@ class DeepCoderRubric(vf.Rubric):
         similarity_reward = {k: -v for k, v in similarity_reward.items()}
 
         metrics = {
-            "execution_reward": execution_reward,
+            # "execution_reward": execution_reward,
             **{k: similarity_reward[k] for k in similarity_reward},
         }
 
-        return RolloutScore(reward=execution_reward + self.similarity_weight * sum(similarity_reward.values()), metrics=metrics)
+        return RolloutScore(reward=0.1 * execution_reward + self.similarity_weight * sum(similarity_reward.values()), metrics=metrics)
 
     def get_reward_func_names(self) -> list[str]:
         return ["execution_reward", "levenshtein", "cognitive_complexity"]
