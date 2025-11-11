@@ -21,7 +21,7 @@ uv pip install ray
 cd ../
 # rm -rf LLaMA-Factory/data/
 
-uv run --with datasets prepare_dataset.py 
+uv run --with datasets scripts/prepare_dataset.py 
 # mv ../configs/config.yaml LLaMA-Factory/
 
 uv pip install wandb
