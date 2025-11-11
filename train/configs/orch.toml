@@ -14,9 +14,7 @@ max_tokens = 4096
 
 [[env]]
 id = "deepcoder-minimal-edit"
-env_type = "ood"
-similarity_weight = 1.0
-similarity_metric = "levenshtein"
+args = {"env_type"="ood", "execution_weight"=0.1, "similarity_weight"=1.0, "similarity_metric"="levenshtein"}
 
 [wandb.log_extras]
 interval = 10

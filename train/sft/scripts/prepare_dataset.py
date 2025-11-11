@@ -1,6 +1,7 @@
 import json
 import os
 from datasets import load_dataset
+from collections import defaultdict
 
 SYSTEM_PROMPT = """You are a Python Expert specializing in code analysis and debugging. When provided with a problem statement, your task is to fix the code while preserving as much of the original code as possible.
 Do not change the function signature, default arguments, or docstring. Use the docstring to understand the requirements of the function.
@@ -66,6 +67,54 @@ if __name__ == "__main__":
 
             dataset_info[dataset_key] = {
                 "file_name": file_name,
+                "formatting": "sharegpt",
+                "columns": {"messages": "conversations", "system": "system"},
+                "tags": {
+                    "role_tag": "from",
+                    "content_tag": "content",
+                    "user_tag": "user",
+                    "assistant_tag": "assistant",
+                },
+            }
+
+    synthetic_dataset_variants = {
+        "non_ood": "nreHieW/DeepCoder-Partial-Edits-Synth",
+        "ood": "nreHieW/DeepCoder-Partial-Edits-Synth-ood",
+        "both": "nreHieW/DeepCoder-Partial-Edits-Synth-both",
+    }
+
+    for variant, hf_id in synthetic_dataset_variants.items():
+        ds = load_dataset(hf_id)
+        d = defaultdict(list)
+        for item in ds["train"]:
+            d[item["problem_spec"]].append(item)
+        to_use = []
+        for item in d:
+            vals = d[item]
+            vals = sorted(vals, key=lambda x: x["levenshtein"])
+            to_use.extend(vals[:3])
+
+        for split, tmp in [("train", to_use), ("test", ds["test"])]:
+            out = []
+            for item in tmp:
+                problem_spec = item["problem_spec"]
+                corrupted_answer = item["corrupted_answer"]
+                completion = item["completion"]
+                user_message = create_user_message(problem_spec, corrupted_answer)
+                out.append(
+                    {
+                        "conversations": [
+                            {"from": "user", "content": user_message},
+                            {"from": "assistant", "content": completion},
+                        ],
+                        "system": GENERIC_SYSTEM_PROMPT,
+                    }
+                )
+            with open(f"{base_path}synthetic_deepcoder_partial_edits_{variant}_{split}.json", "w") as f:
+                json.dump(out, f, indent=2)
+
+            dataset_info[f"synthetic_deepcoder_partial_edits_{variant}_{split}"] = {
+                "file_name": f"synthetic_deepcoder_partial_edits_{variant}_{split}.json",
                 "formatting": "sharegpt",
                 "columns": {"messages": "conversations", "system": "system"},
                 "tags": {

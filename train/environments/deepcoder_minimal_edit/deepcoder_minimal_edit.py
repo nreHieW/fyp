@@ -61,6 +61,7 @@ class DeepCoderRubric(vf.Rubric):
         max_tests: int = 2,
         similarity_metric: str = "levenshtein",
         similarity_weight: float = 1.0,
+        execution_weight: float = 0.1,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -69,6 +70,7 @@ class DeepCoderRubric(vf.Rubric):
         self.max_tests = max_tests
         self.similarity_metric = similarity_metric
         self.similarity_weight = similarity_weight
+        self.execution_weight = execution_weight
 
     def _similarity_score(self, canonical: str, corrupted: str, completion: str) -> Dict[str, float]:
         scores: Dict[str, float] = {}
@@ -158,7 +160,10 @@ class DeepCoderRubric(vf.Rubric):
             **{k: [similarity_reward[k] for similarity_reward in adjusted_similarity_rewards] for k in adjusted_similarity_rewards[0]},
         }
 
-        rewards = [0.1 * execution_reward + self.similarity_weight * sum(similarity_reward.values()) for execution_reward, similarity_reward in zip(execution_rewards, adjusted_similarity_rewards)]
+        rewards = [
+            self.execution_weight * execution_reward + self.similarity_weight * sum(similarity_reward.values())
+            for execution_reward, similarity_reward in zip(execution_rewards, adjusted_similarity_rewards)
+        ]
 
         # metrics = {
         #     **{k: [similarity_reward[k] for similarity_reward in adjusted_similarity_rewards] for k in adjusted_similarity_rewards[0]},
@@ -193,7 +198,7 @@ class DeepCoderRubric(vf.Rubric):
             **{k: similarity_reward[k] for k in similarity_reward},
         }
 
-        return RolloutScore(reward=0.1 * execution_reward + self.similarity_weight * sum(similarity_reward.values()), metrics=metrics)
+        return RolloutScore(reward=self.execution_weight * execution_reward + self.similarity_weight * sum(similarity_reward.values()), metrics=metrics)
 
     def get_reward_func_names(self) -> list[str]:
         return ["execution_reward", "levenshtein", "cognitive_complexity"]
@@ -222,6 +227,7 @@ def load_environment(
     env_type: str = "both",
     similarity_metric: str = "levenshtein",
     similarity_weight: float = 1.0,
+    execution_weight: float = 0.1,
     sort_by_difficulty: bool = False,
     **kwargs,
 ) -> vf.Environment:
@@ -263,6 +269,7 @@ def load_environment(
         max_tests=max_tests,
         similarity_metric=similarity_metric,
         similarity_weight=similarity_weight,
+        execution_weight=execution_weight,
     )
 
     vf_env = DeepCoderEnv(
