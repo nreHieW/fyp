@@ -3,7 +3,6 @@ max_steps = 50
 batch_size = 512
 rollouts_per_example = 16
 seq_len = 4096
-mask_truncated_completions = false
 
 [model]
 name = "Qwen/Qwen3-4B-Instruct-2507"

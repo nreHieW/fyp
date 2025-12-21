@@ -53,7 +53,7 @@ class DeepCoderEnv(vf.SingleTurnEnv):
         return processed_outputs
 
 
-class DeepCoderRubric(vf.Rubric):
+class DeepCoderRubric:
     def __init__(
         self,
         parser: CodeBlockParser,
@@ -62,9 +62,7 @@ class DeepCoderRubric(vf.Rubric):
         similarity_metric: str = "levenshtein",
         similarity_weight: float = 1.0,
         execution_weight: float = 0.1,
-        **kwargs,
     ):
-        super().__init__(**kwargs)
         self.parser = parser
         self.timeout_per_test = timeout_per_test
         self.max_tests = max_tests
@@ -91,7 +89,6 @@ class DeepCoderRubric(vf.Rubric):
         self,
         completion: str | List[ChatMessage],
         info: dict,
-        **kwargs,
     ) -> tuple[float, Dict[str, float]]:
         """Execute code against test cases using deepcoder verification system."""
         parsed_completion = self.parser.parse(completion[0]["content"])
@@ -131,77 +128,21 @@ class DeepCoderRubric(vf.Rubric):
         else:
             raise ValueError(f"Invalid execution_result: {execution_result}")
 
-    async def score_rollouts(
-        self,
-        prompts: List[Messages],
-        completions: List[Messages],
-        answers: List[str],
-        states: List[State],
-        tasks: List[str],
-        infos: List[Info],
-        **kwargs,
-    ) -> RolloutScores:
-        async def process_rollout(completion, info, state):
-            # Run a single rollout locally
-            execution_reward, similarity_reward = await self.deepcoder_reward_func(completion=completion, info=info, **kwargs)
-            return execution_reward, similarity_reward
-
-        tasks = []
-        for completion, info, state in zip(completions, infos, states):
-            tasks.append(asyncio.create_task(process_rollout(completion, info, state)))
-        rollout_results = await asyncio.gather(*tasks)
-
-        execution_rewards = [result[0] for result in rollout_results]
-        similarity_rewards = [result[1] for result in rollout_results]
-        adjusted_similarity_rewards = [{k: -v for k, v in similarity_reward.items()} for similarity_reward in similarity_rewards]
-
-        metrics = {
-            "execution_reward": execution_rewards,
-            **{k: [similarity_reward[k] for similarity_reward in adjusted_similarity_rewards] for k in adjusted_similarity_rewards[0]},
-        }
-
-        rewards = [
-            self.execution_weight * execution_reward + self.similarity_weight * sum(similarity_reward.values())
-            for execution_reward, similarity_reward in zip(execution_rewards, adjusted_similarity_rewards)
-        ]
-
-        # metrics = {
-        #     **{k: [similarity_reward[k] for similarity_reward in adjusted_similarity_rewards] for k in adjusted_similarity_rewards[0]},
-        # }
-
-        # rewards = [self.similarity_weight * sum(similarity_reward.values()) for similarity_reward in adjusted_similarity_rewards]
-
-        return RolloutScores(reward=rewards, metrics=metrics)
-
     async def score_rollout(
         self,
-        prompt: Messages,
         completion: str | List[ChatMessage],
-        answer: str = "",
-        state: State | None = None,
-        task: str = "default",
         info: Info | None = None,
-        example_id: int | None = None,
-        **kwargs,
-    ) -> RolloutScore:
+    ) -> float:
         execution_reward, similarity_reward = await self.deepcoder_reward_func(
             completion=completion,
             info=info,
-            **kwargs,
         )
 
-        # invert the similarity rewards (lower is better)
         similarity_reward = {k: -v for k, v in similarity_reward.items()}
 
-        metrics = {
-            # "execution_reward": execution_reward,
-            **{k: similarity_reward[k] for k in similarity_reward},
-        }
+        reward = self.execution_weight * execution_reward + self.similarity_weight * sum(similarity_reward.values())
 
-        return RolloutScore(reward=self.execution_weight * execution_reward + self.similarity_weight * sum(similarity_reward.values()), metrics=metrics)
-
-    def get_reward_func_names(self) -> list[str]:
-        return ["execution_reward", "levenshtein", "cognitive_complexity"]
+        return reward
 
 
 def _process_test(test: str) -> dict:
@@ -233,6 +174,7 @@ def load_environment(
 ) -> vf.Environment:
     """Load DeepCoder environment for coding problems with executable verification."""
     assert env_type in ["non_ood", "ood", "both"]
+    print(f"Env_type: {env_type}, Similarity_metric: {similarity_metric}, Similarity_weight: {similarity_weight}, Execution_weight: {execution_weight}")
     random.seed(seed)
     train_dataset = load_dataset("nreHieW/DeepCoder-Partial-Edits" + ("-" + env_type if env_type in ["both", "ood"] else "") + "-filtered", split="train").shuffle(seed=seed)
 
@@ -275,7 +217,10 @@ def load_environment(
     vf_env = DeepCoderEnv(
         dataset=train_dataset,
         parser=parser,
-        rubric=rubric,
+        rubric=vf.Rubric(
+            funcs=[rubric.score_rollout],
+            weights=[1.0],
+        ),
         system_prompt=SYSTEM_PROMPT,
     )
     return vf_env
