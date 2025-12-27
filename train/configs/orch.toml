@@ -18,6 +18,5 @@ args = {"env_type"="ood", "execution_weight"=0.1, "similarity_weight"=1.0, "simi
 [wandb.log_extras]
 interval = 10
 
-
 [ckpt]
-interval = 200 
+interval = 50
