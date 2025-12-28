@@ -19,6 +19,7 @@ from partial_edits_utils.prompt_utils import SYSTEM_PROMPT, create_user_message
 from partial_edits_utils.similarity_utils import get_cognitive_complexity_similarity, get_levenshtein_distance
 from verifiers.types import ChatMessage, Info, Messages, RolloutScores, State, ProcessedOutputs, RolloutScore
 
+LOWEST_SCORE = -1
 
 class CodeBlockParser(vf.ThinkParser):
     """Parser to extract code from model responses after ThinkParser processing."""
@@ -111,12 +112,12 @@ class DeepCoderRubric:
 
         if execution_result == 0:
             if self.similarity_metric == "both":
-                return 0.0, {"levenshtein": 0.0, "cognitive_complexity": 0.0}
+                return LOWEST_SCORE, {"levenshtein": 0.0, "cognitive_complexity": 0.0}
             if self.similarity_metric == "levenshtein":
-                return 0.0, {"levenshtein": 0.0}
+                return LOWEST_SCORE, {"levenshtein": 0.0}
             if self.similarity_metric == "cognitive_complexity":
-                return 0.0, {"cognitive_complexity": 0.0}
-            return 0.0, {}
+                return LOWEST_SCORE, {"cognitive_complexity": 0.0}
+            return LOWEST_SCORE, {}
         elif execution_result == 1:
             similarity_score = await asyncio.to_thread(
                 self._similarity_score,
