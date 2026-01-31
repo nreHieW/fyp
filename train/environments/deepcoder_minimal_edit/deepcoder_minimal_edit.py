@@ -19,7 +19,7 @@ from partial_edits_utils.prompt_utils import SYSTEM_PROMPT, create_user_message
 from partial_edits_utils.similarity_utils import get_cognitive_complexity_similarity, get_levenshtein_distance
 from verifiers.types import ChatMessage, Info, Messages, RolloutScores, State, ProcessedOutputs, RolloutScore
 
-LOWEST_SCORE = -1
+LOWEST_SCORE = -0.2
 
 class CodeBlockParser(vf.ThinkParser):
     """Parser to extract code from model responses after ThinkParser processing."""
@@ -94,7 +94,8 @@ class DeepCoderRubric:
         """Execute code against test cases using deepcoder verification system."""
         parsed_completion = self.parser.parse(completion[0]["content"])
         loop = asyncio.get_running_loop()
-        with concurrent.futures.ProcessPoolExecutor(max_workers=1) as pool:
+        pool = concurrent.futures.ProcessPoolExecutor(max_workers=1)
+        try:
             try:
                 execution_result = await asyncio.wait_for(
                     loop.run_in_executor(
@@ -109,18 +110,15 @@ class DeepCoderRubric:
                 )
             except asyncio.TimeoutError:
                 execution_result = 0
+        finally:
+            # Shutdown executor without waiting for stuck processes
+            # This ensures termination even if verify_deepcoder_local is stuck in an infinite loop
+            pool.shutdown(wait=False)
 
         if execution_result == 0:
-            if self.similarity_metric == "both":
-                return LOWEST_SCORE, {"levenshtein": 0.0, "cognitive_complexity": 0.0}
-            if self.similarity_metric == "levenshtein":
-                return LOWEST_SCORE, {"levenshtein": 0.0}
-            if self.similarity_metric == "cognitive_complexity":
-                return LOWEST_SCORE, {"cognitive_complexity": 0.0}
-            return LOWEST_SCORE, {}
+            return 0, {}
         elif execution_result == 1:
-            similarity_score = await asyncio.to_thread(
-                self._similarity_score,
+            similarity_score = self._similarity_score(
                 info["canonical_solution"],
                 info["corrupted_solution"],
                 parsed_completion,
@@ -138,11 +136,11 @@ class DeepCoderRubric:
             completion=completion,
             info=info,
         )
+        if execution_reward == 0:
+            return LOWEST_SCORE
 
         similarity_reward = {k: -v for k, v in similarity_reward.items()}
-
         reward = self.execution_weight * execution_reward + self.similarity_weight * sum(similarity_reward.values())
-
         return reward
 
 

@@ -1,5 +1,6 @@
 import json
 import os
+import random
 from datasets import load_dataset
 from collections import defaultdict
 
@@ -26,7 +27,6 @@ if __name__ == "__main__":
     base_path = "LLaMA-Factory/data/"
     os.makedirs(base_path, exist_ok=True)
 
-    # All dataset variants pushed by create_dataset.py
     dataset_variants = {
         "non_ood": "nreHieW/DeepCoder-Partial-Edits",
         "ood": "nreHieW/DeepCoder-Partial-Edits-ood",
@@ -123,6 +123,51 @@ if __name__ == "__main__":
                     "user_tag": "user",
                     "assistant_tag": "assistant",
                 },
+            }
+
+    # Preference Datasets
+    for variant, hf_id in synthetic_dataset_variants.items():
+        ds = load_dataset(hf_id)
+        d = defaultdict(list)
+        for item in ds["train"]:
+            d[item["problem_spec"]].append(item)
+        to_use = []
+        for item in d:
+            vals = d[item]
+            vals = sorted(vals, key=lambda x: x["levenshtein"])
+            best = vals[0]
+            worst = vals[-1]
+            to_use.extend([best, worst])
+        out = []
+        for best, worst in to_use:
+            assert best["problem_spec"] == worst["problem_spec"]
+            assert best["corrupted_answer"] == worst["corrupted_answer"]
+            corrupted_answer = best["corrupted_answer"]
+            problem_spec = best["problem_spec"]
+            best_completion = best["completion"]
+            worst_completion = worst["completion"]
+            user_message = create_user_message(problem_spec, corrupted_answer)
+
+            out.append(
+                {
+                    "instruction": GENERIC_SYSTEM_PROMPT,
+                    "input": user_message,
+                    "chosen": best_completion,
+                    "rejected": worst_completion,
+                }
+            )
+            with open(f"{base_path}preference_synthetic_deepcoder_partial_edits_{variant}.json", "w") as f:
+                json.dump(out, f, indent=2)
+
+            dataset_info[f"preference_synthetic_deepcoder_partial_edits_{variant}"] = {
+                "file_name": f"preference_synthetic_deepcoder_partial_edits_{variant}.json",
+                "ranking": True,
+                "columns": {
+                    "prompt": "instruction",
+                    "query": "input",
+                    "chosen": "chosen",
+                    "rejected": "rejected"
+                }
             }
 
     with open(f"{base_path}dataset_info.json", "w") as f:

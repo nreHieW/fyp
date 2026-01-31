@@ -42,7 +42,7 @@ class AnthropicModel(BaseModel):
 
             # Add thinking parameter if reasoning is enabled
             if self.is_reasoning:
-                message_params["thinking"] = {"type": "enabled", "budget_tokens": 10000}
+                message_params["thinking"] = {"type": "enabled", "budget_tokens": 16000}
 
             response = self.client.messages.create(**message_params)
 
