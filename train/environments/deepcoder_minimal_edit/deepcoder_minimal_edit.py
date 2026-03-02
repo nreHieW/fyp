@@ -17,11 +17,10 @@ from deepcoder_utils.legacy.deepcoder_genesys import extract_code_from_model
 from deepcoder_utils.local_verify import verify_deepcoder_local
 from partial_edits_utils.prompt_utils import SYSTEM_PROMPT, create_user_message
 from partial_edits_utils.similarity_utils import get_cognitive_complexity_similarity, get_levenshtein_distance
-from verifiers.types import ChatMessage, Info, Messages, RolloutScores, State, ProcessedOutputs, RolloutScore
 
 LOWEST_SCORE = -0.2
 
-class CodeBlockParser(vf.ThinkParser):
+class CodeBlockParser:
     """Parser to extract code from model responses after ThinkParser processing."""
 
     def __init__(self, extract_fn: Callable[[str], str] = extract_code_from_model, **kwargs):
@@ -41,11 +40,11 @@ class DeepCoderEnv(vf.SingleTurnEnv):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    async def setup_state(self, state: State, **kwargs) -> State:
+    async def setup_state(self, state, **kwargs):
         # No sandbox setup; evaluation runs locally
         return state
 
-    def process_env_results_vllm(self, *args, **kwargs) -> ProcessedOutputs:
+    def process_env_results_vllm(self, *args, **kwargs):
         processed_outputs = super().process_env_results_vllm(*args, **kwargs)
         # for exceptions not caused by generated code (e.g., infra failures), zero out completion mask
         for i, reward in enumerate(processed_outputs.rewards):
@@ -88,7 +87,7 @@ class DeepCoderRubric:
 
     async def deepcoder_reward_func(
         self,
-        completion: str | List[ChatMessage],
+        completion: str,
         info: dict,
     ) -> tuple[float, Dict[str, float]]:
         """Execute code against test cases using deepcoder verification system."""
@@ -129,8 +128,8 @@ class DeepCoderRubric:
 
     async def score_rollout(
         self,
-        completion: str | List[ChatMessage],
-        info: Info | None = None,
+        completion: str,
+        info: dict | None = None,
     ) -> float:
         execution_reward, similarity_reward = await self.deepcoder_reward_func(
             completion=completion,
