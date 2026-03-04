@@ -11,6 +11,15 @@ finetuning_type: full
 # TODO:Path
 deepspeed: examples/deepspeed/ds_z2_config.json  # choices: [ds_z0_config.json, ds_z2_config.json, ds_z3_config.json]
 
+# stage: dpo
+# pref_beta: 0.1
+# pref_loss: sigmoid  # choices: [sigmoid (dpo), orpo, simpo]
+# do_train: true
+# finetuning_type: full
+# # TODO:Path
+# deepspeed: examples/deepspeed/ds_z3_config.json 
+
+
 ### dataset
 dataset: deepcoder_partial_edits_non_ood_train
 eval_dataset: deepcoder_partial_edits_non_ood_test

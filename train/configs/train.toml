@@ -3,19 +3,6 @@ max_steps = 50
 name = "Qwen/Qwen3-4B-Instruct-2507"
 seq_len = 4096
 
-[model.lora]
-rank = 16
-alpha = 32
-target_modules = [
-    "q_proj",
-    "k_proj",
-    "v_proj",
-    "o_proj",
-    "gate_proj",
-    "up_proj",
-    "down_proj"
-]
-
 [model.ac]
 
 [optim]
@@ -23,9 +10,3 @@ lr = 1e-6
 
 [ckpt]
 interval = 50
-
-[weight_broadcast]
-adapter_only = true
-
-[ckpt.weights]
-save_adapter_separately = true
