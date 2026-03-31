@@ -1,0 +1,23 @@
+## problems_per_batch = config.batch_size // config.rollouts_per_example
+max_steps = 50
+batch_size = 512
+rollouts_per_example = 16
+seq_len = 4096
+
+[model]
+name = "Qwen/Qwen3-14B"
+
+[sampling]
+max_tokens = 4096
+extra_body = {"chat_template_kwargs"= {"enable_thinking"= false}}
+
+
+[[env]]
+id = "deepcoder-minimal-edit"
+args = {"env_type"="ood", "execution_weight"=0.1, "similarity_weight"=1.0, "similarity_metric"="levenshtein"}
+
+[wandb.log_extras]
+interval = 10
+
+[ckpt]
+interval = 50

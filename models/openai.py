@@ -39,6 +39,13 @@ class OpenAICompatibleModel(BaseModel):
             if self.reasoning_effort_level:
                 request_params["reasoning"] = self.reasoning_effort_level
 
+                        
+            if "qwen" in self.model_name.lower():
+                if self.is_reasoning:
+                    request_params["extra_body"] =  {"chat_template_kwargs": {"enable_thinking": True}}
+                else:
+                    request_params["extra_body"] =  {"chat_template_kwargs": {"enable_thinking": False}}
+
             response = self.client.chat.completions.create(**request_params)
 
             final_answer = response.choices[0].message.content

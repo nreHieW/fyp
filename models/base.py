@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
 
@@ -25,7 +26,16 @@ class BaseModel(ABC):
             user_prompts: List of user prompts to process
             batch_job_id: Optional existing batch job ID to retrieve results from
         """
-        return [self.generate_response(system_prompt, p) for p in tqdm(user_prompts)]
+        with ThreadPoolExecutor(max_workers=len(user_prompts) // 4) as executor:
+            futures = {executor.submit(self.generate_response, system_prompt, prompt): index for index, prompt in enumerate(user_prompts)}
+
+            results = [None] * len(user_prompts)
+
+            for future in tqdm(as_completed(futures), total=len(user_prompts)):
+                index = futures[future]
+                results[index] = future.result()
+
+            return results
 
     def print_usage(self):
         print(f"\n--- Token Usage Statistics ---")

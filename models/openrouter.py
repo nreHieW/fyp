@@ -79,12 +79,16 @@ class OpenRouterModel(BaseModel):
     def generate_response(self, system_prompt: str, user_prompt: str, update_counters: bool = True) -> dict[str, str]:
         try:
             headers = self._get_headers()
-
+            provider = self.model_name.split("/")[0]
             payload = {
                 "model": self.model_name,
                 "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                # "max_tokens": 128000,
+                # "provider": {
+                #     "order": [provider],
+                #     "allow_fallbacks": False,
+                # },
             }
+
             if self.is_reasoning:
                 if self.thinking_effort:
                     payload["reasoning"] = {"effort": self.thinking_effort, "enabled": True}
@@ -96,7 +100,7 @@ class OpenRouterModel(BaseModel):
 
             try:
                 # First try normal (non-streaming) mode
-                response = requests.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
+                response = requests.post(f"{self.base_url}/chat/completions", headers=headers, json=payload, timeout=300)
                 response.raise_for_status()
                 response_data = response.json()
 
@@ -111,7 +115,6 @@ class OpenRouterModel(BaseModel):
                     reasoning = response_data["choices"][0]["message"]["reasoning"]
 
                 result = {"reasoning": reasoning, "final_answer": final_answer}
-
                 # Track token usage and include in response when available
                 if "usage" in response_data:
                     usage = response_data["usage"]
@@ -132,7 +135,7 @@ class OpenRouterModel(BaseModel):
 
             except (requests.exceptions.RequestException, ValueError, KeyError) as e:
                 payload["stream"] = True
-                response = requests.post(f"{self.base_url}/chat/completions", headers=headers, json=payload, stream=True)
+                response = requests.post(f"{self.base_url}/chat/completions", headers=headers, json=payload, stream=True, timeout=300)
                 response.raise_for_status()
 
                 final_answer, reasoning = self._parse_streaming_response(response)

@@ -54,6 +54,8 @@ def insert_docstring(code: str, docstring: str) -> str:
 
 def extract_function_body(code: str) -> str:
     """Extract the function body after the docstring using AST parsing."""
+    code = standardize_code_formatting(code)
+    # code = ast.unparse(ast.parse(code))
     try:
         # Parse the code using AST
         tree = ast.parse(code)

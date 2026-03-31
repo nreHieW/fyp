@@ -1,0 +1,58 @@
+### model
+# model_name_or_path: Qwen/Qwen3-0.6B
+model_name_or_path: Qwen/Qwen3-4B-Instruct-2507
+trust_remote_code: true
+
+
+### method
+stage: sft
+do_train: true
+finetuning_type: full
+# TODO:Path
+deepspeed: examples/deepspeed/ds_z2_config.json  # choices: [ds_z0_config.json, ds_z2_config.json, ds_z3_config.json]
+
+# stage: dpo
+# pref_beta: 0.1
+# pref_loss: sigmoid  # choices: [sigmoid (dpo), orpo, simpo]
+# do_train: true
+# finetuning_type: full
+# # TODO:Path
+# deepspeed: examples/deepspeed/ds_z3_config.json 
+
+
+### dataset
+dataset: deepcoder_partial_edits_non_ood_train
+eval_dataset: deepcoder_partial_edits_non_ood_test
+template: qwen
+cutoff_len: 4096
+# max_samples: 2000
+overwrite_cache: true
+preprocessing_num_workers: 16
+dataloader_num_workers: 4
+
+### output
+# output_dir: saves/qwen3-0.6b/full/sft
+output_dir: saves/qwen3-4b-instruct-2507
+logging_steps: 10
+save_steps: 150
+plot_loss: true
+overwrite_output_dir: true
+save_only_model: false
+report_to: wandb  # choices: [none, wandb, tensorboard, swanlab, mlflow]
+
+### train
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 4
+learning_rate: 1.0e-5
+num_train_epochs: 2.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+bf16: true
+ddp_timeout: 180000000
+resume_from_checkpoint: null
+
+## eval
+# val_size: 0.1
+per_device_eval_batch_size: 1
+eval_strategy: steps
+eval_steps: 100
