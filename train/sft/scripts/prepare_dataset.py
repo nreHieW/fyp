@@ -137,11 +137,13 @@ if __name__ == "__main__":
             vals = sorted(vals, key=lambda x: x["levenshtein"])
             best = vals[0]
             worst = vals[-1]
-            to_use.extend([best, worst])
+            to_use.append([best, worst])
         out = []
         for best, worst in to_use:
             assert best["problem_spec"] == worst["problem_spec"]
-            assert best["corrupted_answer"] == worst["corrupted_answer"]
+            # assert best["corrupted_answer"] == worst["corrupted_answer"], f"Best: {best['corrupted_answer']}, Worst: {worst['corrupted_answer']}"
+            if best["corrupted_answer"] != worst["corrupted_answer"]:
+                continue
             corrupted_answer = best["corrupted_answer"]
             problem_spec = best["problem_spec"]
             best_completion = best["completion"]
@@ -156,11 +158,20 @@ if __name__ == "__main__":
                     "rejected": worst_completion,
                 }
             )
-            with open(f"{base_path}preference_synthetic_deepcoder_partial_edits_{variant}.json", "w") as f:
-                json.dump(out, f, indent=2)
+        n = len(out)
+        train_size = n - 100
+        random.shuffle(out)
+        train_samples = out[:train_size]
+        test_samples = out[train_size:]
 
-            dataset_info[f"preference_synthetic_deepcoder_partial_edits_{variant}"] = {
-                "file_name": f"preference_synthetic_deepcoder_partial_edits_{variant}.json",
+        with open(f"{base_path}preference_synthetic_deepcoder_partial_edits_{variant}_train.json", "w") as f:
+            json.dump(train_samples, f, indent=2)
+        with open(f"{base_path}preference_synthetic_deepcoder_partial_edits_{variant}_test.json", "w") as f:
+            json.dump(test_samples, f, indent=2)
+
+        for split, tmp in [("train", train_samples), ("test", test_samples)]:
+            dataset_info[f"preference_synthetic_deepcoder_partial_edits_{variant}_{split}"] = {
+                "file_name": f"preference_synthetic_deepcoder_partial_edits_{variant}_{split}.json",
                 "ranking": True,
                 "columns": {
                     "prompt": "instruction",
@@ -169,6 +180,7 @@ if __name__ == "__main__":
                     "rejected": "rejected"
                 }
             }
+
 
     with open(f"{base_path}dataset_info.json", "w") as f:
         json.dump(dataset_info, f, indent=2)

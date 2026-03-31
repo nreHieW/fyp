@@ -112,6 +112,7 @@ def get_qwen_question_template_answer(question: CodeGenerationProblem):
         add_generation_prompt=True,
         truncation=False,
         padding=False,
+        enable_thinking=False
     )
     return prompt
 

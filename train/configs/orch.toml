@@ -9,6 +9,7 @@ name = "Qwen/Qwen3-14B"
 
 [sampling]
 max_tokens = 4096
+extra_body = {"chat_template_kwargs"= {"enable_thinking"= false}}
 
 
 [[env]]

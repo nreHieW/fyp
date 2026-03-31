@@ -83,10 +83,10 @@ class OpenRouterModel(BaseModel):
             payload = {
                 "model": self.model_name,
                 "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                "provider": {
-                    "order": [provider],
-                    "allow_fallbacks": False,
-                },
+                # "provider": {
+                #     "order": [provider],
+                #     "allow_fallbacks": False,
+                # },
             }
 
             if self.is_reasoning:
@@ -100,7 +100,7 @@ class OpenRouterModel(BaseModel):
 
             try:
                 # First try normal (non-streaming) mode
-                response = requests.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
+                response = requests.post(f"{self.base_url}/chat/completions", headers=headers, json=payload, timeout=300)
                 response.raise_for_status()
                 response_data = response.json()
 
@@ -135,7 +135,7 @@ class OpenRouterModel(BaseModel):
 
             except (requests.exceptions.RequestException, ValueError, KeyError) as e:
                 payload["stream"] = True
-                response = requests.post(f"{self.base_url}/chat/completions", headers=headers, json=payload, stream=True)
+                response = requests.post(f"{self.base_url}/chat/completions", headers=headers, json=payload, stream=True, timeout=300)
                 response.raise_for_status()
 
                 final_answer, reasoning = self._parse_streaming_response(response)
