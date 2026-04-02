@@ -42,6 +42,9 @@ The repository provides an interface to use various models from various provider
 For training, refer to the [train](./train) folder and the corresponding `README.md` file.
 
 
+## Acknowledgements
+I would like to thank my supervisor A/P Min-Yen Kan and my advisor Tongyao Zhu for their guidance throughout the course of this project. Their mentorship has proved extremely invaluable. I would also like to express my appreciation to the fellow members of WING whose suggestions have been extremely helpful. Lastly, I would like to thank Prime Intellect for sponsoring Compute and API costs of this project.
+
 ## Citation
 If you use this repository, please cite:
 
