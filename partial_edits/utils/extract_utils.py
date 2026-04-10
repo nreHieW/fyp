@@ -6,6 +6,7 @@ import ast
 
 def extract_code_from_response(response: str) -> str:
     """Extract the longest code block from markdown code blocks."""
+    response = response.strip()
     try:
         ast.parse(response)
         return response

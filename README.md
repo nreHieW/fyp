@@ -13,7 +13,7 @@ uv sync
 
 To run the evaluation scripts, you will need to first generate the solutions.
 ```bash
-uv run partial_edits/generate_solutions.py --questions_path data/questions/corrupted_solutions_manual_easy_400.jsonl --store_token_info --model <MODEL NAME>
+uv run partial_edits/generate_solutions.py --questions_path data/questions/corrupted_solutions_manual_easy_400.jsonl --store_token_info --model <MODEL NAME> (--is_reasoning) (--generic)
 ```
 
 Then you can run the evaluation. You will first need to ensure that the Code Evaluator Docker is running. The DockerFile can be found in the [evaluator](./evaluator) folder.
@@ -24,7 +24,7 @@ docker run -d --name code-evaluator -p 8000:8000 code-evaluator
 
 Then you can run the evaluation and the results file will be saved in the [data/code_edits/results](./data/code_edits/results) folder.
 ```bash
-uv run partial_edits/evaluate.py --sample_path data/code_edits/results_<MODEL NAME>_non_reasoning_400.jsonl
+uv run partial_edits/evaluate.py --sample_path data/code_edits/results_<MODEL NAME>_non_reasoning_400.jsonl --eval_similarity
 ```
 
 ## Advanced Usage
